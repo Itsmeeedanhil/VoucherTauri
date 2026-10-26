@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+:root {
+  --scrollbar-thumb: #334155;
+  --scrollbar-track: #0f172a;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: #1e293b;
+    background-color: #0f172a;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* Modern scrollbar customization with progressive fallback */
+.scroller,
+body,
+main,
+aside {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+@supports not (scrollbar-color: auto) {
+  .scroller::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  main::-webkit-scrollbar,
+  aside::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scroller::-webkit-scrollbar-thumb,
+  body::-webkit-scrollbar-thumb,
+  main::-webkit-scrollbar-thumb,
+  aside::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+
+  .scroller::-webkit-scrollbar-track,
+  body::-webkit-scrollbar-track,
+  main::-webkit-scrollbar-track,
+  aside::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+}
+
+/* Strict Pre-Printed Form Print CSS: Pure white sheet with black data text only */
+@media print {
+  @page {
+    size: 8.5in 11in;
+    margin: 0mm;
+  }
+
+  html,
+  body,
+  #root,
+  .app-shell,
+  main,
+  .print-area {
+    width: 8.5in !important;
+    height: 11in !important;
+    min-height: 0 !important;
+    max-height: 11in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .voucher-page {
+    width: 8.5in !important;
+    min-width: 8.5in !important;
+    max-width: 8.5in !important;
+    height: 11in !important;
+    min-height: 11in !important;
+    max-height: 11in !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    overflow: hidden !important;
+    position: relative !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .data-field-node,
+  .data-field-node * {
+    outline: none !important;
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    color: #000000 !important;
+  }
+}
