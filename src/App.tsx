@@ -4,6 +4,9 @@ import {
   BradwellFieldKey,
   ClientProfile,
   FieldOffset,
+  Form2307Data,
+  Form2307Row,
+  FormType,
   SeriesConfig,
   SignatoriesConfig,
   VoucherData,
@@ -11,6 +14,46 @@ import {
 import { Sidebar } from "./components/Sidebar";
 import { VoucherCanvas } from "./components/VoucherCanvas";
 import { SignatoriesModal } from "./components/SignatoriesModal";
+
+const createEmpty2307Rows = (): Form2307Row[] =>
+  Array.from({ length: 10 }, () => ({
+    description: "",
+    atc: "",
+    month1: 0,
+    month2: 0,
+    month3: 0,
+    total: 0,
+    tax_withheld: 0,
+  }));
+
+const createDefaultBir2307 = (
+  companyName: string,
+  _client?: ClientProfile
+): Form2307Data => {
+  return {
+    company_name: companyName,
+    from_date: "",
+    to_date: "",
+    payee_tin: "",
+    payee_name: "",
+    payee_address: "",
+    payee_zip: "",
+    payee_foreign_address: "",
+    payor_tin: "",
+    payor_name: "",
+    payor_address: "",
+    payor_zip: "",
+    payor_signatory: "",
+    payor_title_tin: "",
+    payor_title: "",
+    payor_rep_tin: "",
+    payor_signature_url: "",
+    payee_signatory: "",
+    payee_title_tin: "",
+    table1: createEmpty2307Rows(),
+    table2: createEmpty2307Rows(),
+  };
+};
 
 const DEFAULT_CLIENT_PROFILE: ClientProfile = {
   id: "bradwell",
@@ -25,7 +68,7 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
     "Mapleway International Distributions Corp.",
     "StoneBridge Materials Corp.",
   ],
-  enabled_forms: ["CV"],
+  enabled_forms: ["CV", "BIR2307"],
   logo_url: null,
   layout_config: {
     page_size: "Letter",
@@ -55,6 +98,7 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
 };
 
 export function App() {
+  const [activeForm, setActiveForm] = useState<FormType>("CV");
   const [clients, setClients] = useState<ClientProfile[]>([
     DEFAULT_CLIENT_PROFILE,
   ]);
@@ -70,6 +114,12 @@ export function App() {
     null
   );
   const [voucherData, setVoucherData] = useState<VoucherData | null>(null);
+  const [bir2307Data, setBir2307Data] = useState<Form2307Data>(() =>
+    createDefaultBir2307(
+      DEFAULT_CLIENT_PROFILE.sub_companies[0],
+      DEFAULT_CLIENT_PROFILE
+    )
+  );
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [payeeOverride, setPayeeOverride] = useState<string>("");
@@ -99,7 +149,7 @@ export function App() {
     init();
   }, []);
 
-  // Load per-company Series & per-client Signatories when company or client changes
+  // Load per-company Series & Signatories when company or client changes
   useEffect(() => {
     async function loadMeta() {
       const seriesKey = selectedCompany || selectedClient.code;
@@ -137,7 +187,7 @@ export function App() {
       }
     }
     loadMeta();
-  }, [selectedClient.code, selectedCompany]);
+  }, [selectedClient, selectedCompany]);
 
   const handleSelectClient = (client: ClientProfile) => {
     setSelectedClient(client);
@@ -151,6 +201,8 @@ export function App() {
     }
     setIsLoading(true);
     setErrorMsg(null);
+    // Reset BIR 2307 state immediately when searching a new Reference Number
+    setBir2307Data(createDefaultBir2307(selectedCompany, selectedClient));
     try {
       const data = await invoke<VoucherData>("query_quickbooks_voucher", {
         formType: "CV",
@@ -159,12 +211,126 @@ export function App() {
         refNumber: refNumber.trim(),
       });
       setVoucherData(data);
+
+      // Reset all BIR 2307 fields to a clean slate before auto-filling from the newly searched QuickBooks Check
+      setBir2307Data(() => {
+        const fresh = createDefaultBir2307(selectedCompany, selectedClient);
+        const zipMatch = (data.payee_address || "").match(/\b(\d{4})\b/);
+        const extractedPayeeZip =
+          data.payee_zip || (zipMatch ? zipMatch[1] : "");
+
+        const payorZipMatch = (
+          data.payor_address ||
+          selectedClient.address ||
+          ""
+        ).match(/\b(\d{4})\b/);
+        const extractedPayorZip =
+          data.payor_zip || (payorZipMatch ? payorZipMatch[1] : "1110");
+
+        // Parse check date (MM/DD/YYYY) to determine which month of the quarter it falls into
+        let mIndex = 0; // 0 = 1st month, 1 = 2nd month, 2 = 3rd month
+        let fromDate = "";
+        let toDate = "";
+        const parts = (data.date || "").split("/");
+        if (parts.length === 3) {
+          const monthNum = parseInt(parts[0], 10) - 1;
+          const yearNum = parseInt(parts[2], 10);
+          if (!isNaN(monthNum) && !isNaN(yearNum)) {
+            mIndex = monthNum % 3;
+            const qStart = Math.floor(monthNum / 3) * 3;
+            const dFrom = new Date(yearNum, qStart, 1);
+            const dTo = new Date(yearNum, qStart + 3, 0);
+            fromDate = dFrom.toISOString().slice(0, 10);
+            toDate = dTo.toISOString().slice(0, 10);
+          }
+        }
+
+        // Look for any Withholding Tax / EWT credit line and gross expense line in QuickBooks line_items
+        const ewtLine = data.line_items.find(
+          (li) =>
+            li.credit > 0 &&
+            /withholding|ewt|wtax|tax withheld|expanded/i.test(
+              `${li.account_name} ${li.memo}`
+            )
+        );
+        const expenseDebitSum = data.line_items
+          .filter((li) => li.debit > 0)
+          .reduce((s, li) => s + li.debit, 0);
+        const baseIncome =
+          expenseDebitSum > 0 ? expenseDebitSum : data.total_amount;
+        const taxAmt = ewtLine
+          ? ewtLine.credit
+          : Math.round(baseIncome * 0.1 * 100) / 100;
+
+        const nextTable1 = createEmpty2307Rows();
+        nextTable1[0] = {
+          description: data.memo || `Check Ref #${data.ref_number}`,
+          atc: "",
+          month1: mIndex === 0 ? baseIncome : 0,
+          month2: mIndex === 1 ? baseIncome : 0,
+          month3: mIndex === 2 ? baseIncome : 0,
+          total: baseIncome,
+          tax_withheld: taxAmt,
+        };
+
+        return {
+          ...fresh,
+          from_date: fromDate,
+          to_date: toDate,
+          payee_name: data.payee_name || "",
+          payee_address: data.payee_address || "",
+          payee_tin: data.tin || "",
+          payee_zip: extractedPayeeZip,
+          payee_foreign_address: "",
+          payor_name: data.payor_name || selectedCompany || "",
+          payor_address: data.payor_address || selectedClient.address || "",
+          payor_tin: data.payor_tin || selectedClient.tin || "",
+          payor_zip: extractedPayorZip,
+          payor_signatory:
+            data.signatories?.approved_by_name ||
+            signatories?.approved_by_name ||
+            "",
+          payor_title_tin: "",
+          payor_title:
+            data.signatories?.approved_by_pos ||
+            signatories?.approved_by_pos ||
+            "",
+          payor_rep_tin: data.payor_tin || selectedClient.tin || "",
+          payor_signature_url: "",
+          payee_signatory: "",
+          payee_title_tin: "",
+          table1: nextTable1,
+          table2: createEmpty2307Rows(),
+        };
+      });
     } catch (err: any) {
       setErrorMsg(typeof err === "string" ? err : err?.message || String(err));
     } finally {
       setIsLoading(false);
     }
-  }, [selectedClient.code, selectedCompany, refNumber]);
+  }, [selectedClient, selectedCompany, refNumber, signatories]);
+
+  const handleSaveBir2307 = useCallback(
+    async (data: Form2307Data) => {
+      const withCompany = { ...data, company_name: selectedCompany };
+      setBir2307Data(withCompany);
+      try {
+        await invoke("save_bir2307", { data: withCompany });
+      } catch (err: any) {
+        setErrorMsg(String(err));
+      }
+    },
+    [selectedCompany]
+  );
+
+  const handleChangeBir2307 = useCallback(
+    (next: Form2307Data) => {
+      const withCompany = { ...next, company_name: selectedCompany };
+      setBir2307Data(withCompany);
+      invoke("save_bir2307", { data: withCompany }).catch(() => {});
+    },
+    [selectedCompany]
+  );
 
   const handleUpdateSeries = async (newNum: number, newPrefix: string) => {
     if (!seriesConfig) return;
@@ -252,7 +418,24 @@ export function App() {
   };
 
   const handlePrint = async () => {
+    const prevTitle = document.title;
+    document.title = "";
+    const scroller = document.querySelector(".print-area");
+    if (scroller) {
+      scroller.scrollTop = 0;
+      scroller.scrollLeft = 0;
+    }
+    window.scrollTo(0, 0);
+
+    if (activeForm === "BIR2307") {
+      await handleSaveBir2307(bir2307Data);
+      window.print();
+      document.title = prevTitle;
+      return;
+    }
+
     window.print();
+    document.title = prevTitle;
     if (seriesConfig) {
       const seriesKey = selectedCompany || selectedClient.code;
       try {
@@ -280,8 +463,17 @@ export function App() {
   };
 
   return (
-    <div className="app-shell flex h-screen w-screen overflow-hidden bg-slate-950">
+    <div
+      className={`app-shell flex h-screen w-screen overflow-hidden bg-slate-950 ${
+        activeForm === "BIR2307" ? "mode-bir2307" : "mode-cv"
+      }`}
+    >
       <Sidebar
+        activeForm={activeForm}
+        onSelectForm={(f) => {
+          setActiveForm(f);
+          setSelectedField(null);
+        }}
         clients={clients}
         selectedClient={selectedClient}
         onSelectClient={handleSelectClient}
@@ -300,7 +492,15 @@ export function App() {
       />
 
       <VoucherCanvas
+        activeForm={activeForm}
         voucherData={voucherData}
+        bir2307Data={bir2307Data}
+        onChangeBir2307={handleChangeBir2307}
+        onSaveBir2307={handleSaveBir2307}
+        onResetBir2307={() => {
+          const fresh = createDefaultBir2307(selectedCompany, selectedClient);
+          handleChangeBir2307(fresh);
+        }}
         client={selectedClient}
         payeeOverride={payeeOverride}
         errorMsg={errorMsg}

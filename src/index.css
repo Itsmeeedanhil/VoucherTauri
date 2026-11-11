@@ -53,11 +53,15 @@ aside {
   }
 }
 
-/* Strict Pre-Printed Form Print CSS: Pure white sheet with black data text only */
+/* Strict Pre-Printed Form Print CSS: Pure white sheet with black data text only & zero browser headers/footers */
+@page {
+  size: auto;
+  margin: 0mm !important;
+}
+
 @media print {
   @page {
-    size: 8.5in 11in;
-    margin: 0mm;
+    margin: 0mm !important;
   }
 
   html,
@@ -108,6 +112,36 @@ aside {
     position: relative !important;
     page-break-after: avoid !important;
     break-after: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Scale BIR 2307 Page 1 (215.9mm x 330.2mm) cleanly onto a single sheet without overflow or 2nd page */
+  .mode-bir2307,
+  .mode-bir2307 main,
+  .mode-bir2307 .print-area {
+    width: 8.5in !important;
+    height: 11in !important;
+    max-height: 11in !important;
+    display: block !important;
+    overflow: hidden !important;
+    position: relative !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .bir2307-page {
+    position: absolute !important;
+    top: 2mm !important;
+    left: 16.5mm !important;
+    width: 215.9mm !important;
+    min-width: 215.9mm !important;
+    max-width: 215.9mm !important;
+    height: 330.2mm !important;
+    min-height: 330.2mm !important;
+    max-height: 330.2mm !important;
+    transform: scale(0.84) !important;
+    transform-origin: top left !important;
   }
 
   .data-field-node,

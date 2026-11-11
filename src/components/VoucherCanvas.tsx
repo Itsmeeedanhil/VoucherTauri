@@ -1,18 +1,37 @@
-import React from "react";
-import { FileSpreadsheet, Layers, Move, RotateCcw } from "lucide-react";
+import React, { useState } from "react";
+import {
+  Eye,
+  FileSpreadsheet,
+  Layers,
+  Move,
+  Printer,
+  RotateCcw,
+} from "lucide-react";
 import {
   BradwellFieldKey,
   ClientProfile,
   FieldOffset,
+  Form2307Data,
+  FormType,
   VoucherData,
 } from "../types/voucher";
 import {
   BRADWELL_FIELD_ANCHORS,
   BradwellCheckVoucherLayout,
 } from "./layouts/BradwellCheckVoucherLayout";
+import {
+  BIR2307_FIELD_ANCHORS,
+  Bir2307Layout,
+} from "./layouts/Bir2307Layout";
+import { Bir2307EditorPanel } from "./Bir2307EditorPanel";
 
 interface Props {
+  activeForm: FormType;
   voucherData: VoucherData | null;
+  bir2307Data: Form2307Data;
+  onChangeBir2307: (next: Form2307Data) => void;
+  onSaveBir2307: (data: Form2307Data) => Promise<void>;
+  onResetBir2307: () => void;
   client: ClientProfile;
   payeeOverride: string;
   errorMsg: string | null;
@@ -27,7 +46,12 @@ interface Props {
 }
 
 export const VoucherCanvas: React.FC<Props> = ({
+  activeForm,
   voucherData,
+  bir2307Data,
+  onChangeBir2307,
+  onSaveBir2307,
+  onResetBir2307,
   client,
   payeeOverride,
   errorMsg,
@@ -41,6 +65,14 @@ export const VoucherCanvas: React.FC<Props> = ({
   onResetAllOffsets,
 }) => {
   const cfg = client.layout_config;
+  const [showBirBackground, setShowBirBackground] = useState<boolean>(true);
+  const [printBirBackground, setPrintBirBackground] = useState<boolean>(true);
+
+  const activeAnchors: Record<
+    string,
+    { label: string; defaultFontPt: number }
+  > = activeForm === "CV" ? BRADWELL_FIELD_ANCHORS : BIR2307_FIELD_ANCHORS;
+
   const currentFieldOffset: FieldOffset = selectedField
     ? cfg.field_offsets?.[selectedField] ?? {
         x_mm: 0,
@@ -55,6 +87,7 @@ export const VoucherCanvas: React.FC<Props> = ({
       <div className="no-print h-12 px-6 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between shrink-0 gap-4">
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => onToggleCalibrationMode(!calibrationMode)}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
               calibrationMode
@@ -68,21 +101,61 @@ export const VoucherCanvas: React.FC<Props> = ({
               : "Move / Adjust Layout Fields"}
           </button>
 
-          <button
-            onClick={() => onToggleWireframeGuide(!showWireframeGuide)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
-              showWireframeGuide
-                ? "bg-blue-600/20 text-blue-300 border-blue-500/50"
-                : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
-            }`}
-            title="Show or hide non-printing form box lines while adjusting field positions"
-          >
-            <Layers className="w-3.5 h-3.5" />
-            {showWireframeGuide ? "Hide Form Lines Guide" : "Show Form Lines Guide"}
-          </button>
+          {activeForm === "CV" ? (
+            <button
+              type="button"
+              onClick={() => onToggleWireframeGuide(!showWireframeGuide)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+                showWireframeGuide
+                  ? "bg-blue-600/20 text-blue-300 border-blue-500/50"
+                  : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
+              }`}
+              title="Show or hide non-printing form box lines while adjusting field positions"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              {showWireframeGuide
+                ? "Hide Form Lines Guide"
+                : "Show Form Lines Guide"}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowBirBackground(!showBirBackground)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+                  showBirBackground
+                    ? "bg-blue-600/20 text-blue-300 border-blue-500/50"
+                    : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
+                }`}
+                title="Show or hide BIR 2307 Page 1 form template on screen"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                {showBirBackground
+                  ? "Showing Form 2307 Page 1"
+                  : "Showing Data Only"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setPrintBirBackground(!printBirBackground)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+                  printBirBackground
+                    ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/50"
+                    : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
+                }`}
+                title="Choose whether printing includes the BIR 2307 Page 1 form or prints text only onto a pre-printed 2307 sheet"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                {printBirBackground
+                  ? "Print Mode: Full Form + Data"
+                  : "Print Mode: Text Only (Pre-Printed)"}
+              </button>
+            </>
+          )}
 
           {calibrationMode && (
             <button
+              type="button"
               onClick={onResetAllOffsets}
               className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-rose-950/60 text-rose-300 border border-slate-700 hover:border-rose-500/40 transition flex items-center gap-1 cursor-pointer"
               title="Reset all moved fields back to default positions"
@@ -106,16 +179,14 @@ export const VoucherCanvas: React.FC<Props> = ({
               className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white"
             >
               <option value="">— Click any field on page to move —</option>
-              {(Object.keys(BRADWELL_FIELD_ANCHORS) as BradwellFieldKey[]).map(
-                (k) => (
-                  <option key={k} value={k}>
-                    {BRADWELL_FIELD_ANCHORS[k].label}
-                  </option>
-                )
-              )}
+              {(Object.keys(activeAnchors) as BradwellFieldKey[]).map((k) => (
+                <option key={k} value={k}>
+                  {activeAnchors[k].label}
+                </option>
+              ))}
             </select>
 
-            {selectedField && (
+            {selectedField && activeAnchors[selectedField] && (
               <div className="flex items-center gap-2">
                 <label className="flex items-center gap-1 text-slate-300">
                   <span className="text-[11px] text-slate-400">X(mm):</span>
@@ -156,7 +227,7 @@ export const VoucherCanvas: React.FC<Props> = ({
                     step="0.5"
                     value={
                       currentFieldOffset.font_size_pt ??
-                      BRADWELL_FIELD_ANCHORS[selectedField].defaultFontPt
+                      activeAnchors[selectedField].defaultFontPt
                     }
                     onChange={(e) =>
                       onUpdateFieldOffset(selectedField, {
@@ -184,31 +255,52 @@ export const VoucherCanvas: React.FC<Props> = ({
           </div>
         )}
 
-        {!voucherData ? (
-          <div className="no-print my-auto text-center max-w-md p-8 rounded-2xl border border-slate-800 bg-slate-900/50 text-slate-400 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-blue-400">
-              <FileSpreadsheet className="w-6 h-6" />
+        {activeForm === "CV" ? (
+          !voucherData ? (
+            <div className="no-print my-auto text-center max-w-md p-8 rounded-2xl border border-slate-800 bg-slate-900/50 text-slate-400 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-blue-400">
+                <FileSpreadsheet className="w-6 h-6" />
+              </div>
+              <h2 className="text-sm font-bold text-white">
+                Enter Reference Number to Search
+              </h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Make sure QuickBooks Desktop is open, enter a Check Reference
+                Number in the left panel, and click{" "}
+                <span className="text-blue-400 font-semibold">SEARCH</span>.
+              </p>
             </div>
-            <h2 className="text-sm font-bold text-white">
-              Enter Reference Number to Search
-            </h2>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Make sure QuickBooks Desktop is open, enter a Check Reference
-              Number in the left panel, and click{" "}
-              <span className="text-blue-400 font-semibold">SEARCH</span>.
-            </p>
-          </div>
+          ) : (
+            <BradwellCheckVoucherLayout
+              data={voucherData}
+              client={client}
+              payeeOverride={payeeOverride}
+              showWireframeGuide={showWireframeGuide}
+              calibrationMode={calibrationMode}
+              selectedField={selectedField}
+              onSelectField={onSelectField}
+              onUpdateFieldOffset={onUpdateFieldOffset}
+            />
+          )
         ) : (
-          <BradwellCheckVoucherLayout
-            data={voucherData}
-            client={client}
-            payeeOverride={payeeOverride}
-            showWireframeGuide={showWireframeGuide}
-            calibrationMode={calibrationMode}
-            selectedField={selectedField}
-            onSelectField={onSelectField}
-            onUpdateFieldOffset={onUpdateFieldOffset}
-          />
+          <>
+            <Bir2307EditorPanel
+              data={bir2307Data}
+              onChange={onChangeBir2307}
+              onSave={onSaveBir2307}
+              onReset={onResetBir2307}
+            />
+            <Bir2307Layout
+              data={bir2307Data}
+              client={client}
+              showFormBackground={showBirBackground}
+              printWithBackground={printBirBackground}
+              calibrationMode={calibrationMode}
+              selectedField={selectedField}
+              onSelectField={onSelectField}
+              onUpdateFieldOffset={onUpdateFieldOffset}
+            />
+          </>
         )}
       </div>
     </main>

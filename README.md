@@ -107,3 +107,4 @@ If you modify `src-tauri/bin/QBBridge.cs`, recompile it targeting `x86` (require
 ```powershell
 & "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /platform:x86 /target:exe /out:"src-tauri\bin\QBBridge.exe" /reference:"src-tauri\bin\Interop.QBFC16Lib.dll" "src-tauri\bin\QBBridge.cs"
 ```
+

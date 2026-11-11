@@ -22,7 +22,22 @@ export type BradwellFieldKey =
   | "received_date"
   | "bank_name"
   | "check_no"
-  | "check_date";
+  | "check_date"
+  | "bir2307_from_date"
+  | "bir2307_to_date"
+  | "bir2307_payee_tin"
+  | "bir2307_payee_name"
+  | "bir2307_payee_address"
+  | "bir2307_payee_zip"
+  | "bir2307_foreign_address"
+  | "bir2307_payor_tin"
+  | "bir2307_payor_name"
+  | "bir2307_payor_address"
+  | "bir2307_payor_zip"
+  | "bir2307_table1"
+  | "bir2307_table2"
+  | "bir2307_payor_signatory"
+  | "bir2307_payee_signatory";
 
 export interface LayoutConfig {
   page_size: string;
@@ -122,6 +137,11 @@ export interface VoucherData {
   bank_account: string;
   ap_account: string;
   tin: string;
+  payee_zip?: string;
+  payor_name?: string;
+  payor_address?: string;
+  payor_tin?: string;
+  payor_zip?: string;
   po_number: string;
   memo: string;
   total_amount: number;
@@ -132,11 +152,46 @@ export interface VoucherData {
   signatories: SignatoriesConfig;
 }
 
-export type FormType = "CV";
+export type FormType = "CV" | "BIR2307";
 
 export const FORM_LABELS: Record<FormType, string> = {
   CV: "Check Voucher",
+  BIR2307: "BIR Form 2307",
 };
+
+export interface Form2307Row {
+  description: string;
+  atc: string;
+  month1: number;
+  month2: number;
+  month3: number;
+  total: number;
+  tax_withheld: number;
+}
+
+export interface Form2307Data {
+  company_name: string;
+  from_date: string;
+  to_date: string;
+  payee_tin: string;
+  payee_name: string;
+  payee_address: string;
+  payee_zip: string;
+  payee_foreign_address: string;
+  payor_tin: string;
+  payor_name: string;
+  payor_address: string;
+  payor_zip: string;
+  payor_signatory: string;
+  payor_title_tin: string;
+  payor_title?: string;
+  payor_rep_tin?: string;
+  payor_signature_url?: string;
+  payee_signatory: string;
+  payee_title_tin: string;
+  table1: Form2307Row[];
+  table2: Form2307Row[];
+}
 
 export type GuideOverlayMode = "scan_overlay" | "wireframe_guide" | "data_only";
 

@@ -1,4 +1,4 @@
-use crate::models::{ClientProfile, LayoutConfig, SeriesConfig, SignatoriesConfig};
+use crate::models::{ClientProfile, Form2307Data, LayoutConfig, SeriesConfig, SignatoriesConfig};
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
@@ -68,6 +68,14 @@ impl DbState {
             "CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS form2307_records (
+                company_name TEXT PRIMARY KEY,
+                json_data TEXT NOT NULL
             )",
             [],
         )?;
@@ -328,6 +336,52 @@ impl DbState {
         conn.execute(
             "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?1, ?2)",
             params![key, val],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_form2307(&self, company_name: &str) -> Result<Form2307Data> {
+        let conn = self.conn.lock().unwrap();
+        let res = conn.query_row(
+            "SELECT json_data FROM form2307_records WHERE company_name = ?1",
+            params![company_name],
+            |row| {
+                let s: String = row.get(0)?;
+                Ok(s)
+            },
+        );
+        match res {
+            Ok(json) => {
+                if let Ok(mut data) = serde_json::from_str::<Form2307Data>(&json) {
+                    while data.table1.len() < 10 {
+                        data.table1.push(Default::default());
+                    }
+                    while data.table2.len() < 10 {
+                        data.table2.push(Default::default());
+                    }
+                    Ok(data)
+                } else {
+                    Ok(Form2307Data {
+                        company_name: company_name.to_string(),
+                        payor_name: company_name.to_string(),
+                        ..Default::default()
+                    })
+                }
+            }
+            Err(_) => Ok(Form2307Data {
+                company_name: company_name.to_string(),
+                payor_name: company_name.to_string(),
+                ..Default::default()
+            }),
+        }
+    }
+
+    pub fn save_form2307(&self, data: &Form2307Data) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let json = serde_json::to_string(data)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO form2307_records (company_name, json_data) VALUES (?1, ?2)",
+            params![data.company_name, json],
         )?;
         Ok(())
     }

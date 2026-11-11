@@ -19,6 +19,16 @@ struct BridgeResponse {
     bank_account: String,
     ap_account: String,
     tin: String,
+    #[serde(default)]
+    payee_zip: String,
+    #[serde(default)]
+    payor_name: String,
+    #[serde(default)]
+    payor_address: String,
+    #[serde(default)]
+    payor_tin: String,
+    #[serde(default)]
+    payor_zip: String,
     po_number: String,
     memo: String,
     total_amount: f64,
@@ -125,6 +135,11 @@ pub fn query_voucher_from_qb(
         bank_account: parsed.bank_account,
         ap_account: parsed.ap_account,
         tin: parsed.tin,
+        payee_zip: parsed.payee_zip,
+        payor_name: parsed.payor_name,
+        payor_address: parsed.payor_address,
+        payor_tin: parsed.payor_tin,
+        payor_zip: parsed.payor_zip,
         po_number: parsed.po_number,
         memo: parsed.memo,
         total_amount: parsed.total_amount,

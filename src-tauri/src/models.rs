@@ -151,6 +151,16 @@ pub struct VoucherData {
     pub bank_account: String,
     pub ap_account: String,
     pub tin: String,
+    #[serde(default)]
+    pub payee_zip: String,
+    #[serde(default)]
+    pub payor_name: String,
+    #[serde(default)]
+    pub payor_address: String,
+    #[serde(default)]
+    pub payor_tin: String,
+    #[serde(default)]
+    pub payor_zip: String,
     pub po_number: String,
     pub memo: String,
     pub total_amount: f64,
@@ -160,4 +170,73 @@ pub struct VoucherData {
     pub bill_credits: Vec<BillCreditItem>,
     pub signatories: SignatoriesConfig,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Form2307Row {
+    pub description: String,
+    pub atc: String,
+    pub month1: f64,
+    pub month2: f64,
+    pub month3: f64,
+    pub total: f64,
+    pub tax_withheld: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Form2307Data {
+    pub company_name: String,
+    pub from_date: String, // YYYY-MM-DD
+    pub to_date: String,   // YYYY-MM-DD
+    pub payee_tin: String,
+    pub payee_name: String,
+    pub payee_address: String,
+    pub payee_zip: String,
+    pub payee_foreign_address: String,
+    pub payor_tin: String,
+    pub payor_name: String,
+    pub payor_address: String,
+    pub payor_zip: String,
+    pub payor_signatory: String,
+    pub payor_title_tin: String,
+    #[serde(default)]
+    pub payor_title: String,
+    #[serde(default)]
+    pub payor_rep_tin: String,
+    #[serde(default)]
+    pub payor_signature_url: String,
+    pub payee_signatory: String,
+    pub payee_title_tin: String,
+    pub table1: Vec<Form2307Row>,
+    pub table2: Vec<Form2307Row>,
+}
+
+impl Default for Form2307Data {
+    fn default() -> Self {
+        let default_rows = || (0..10).map(|_| Form2307Row::default()).collect();
+        Self {
+            company_name: "".to_string(),
+            from_date: "".to_string(),
+            to_date: "".to_string(),
+            payee_tin: "".to_string(),
+            payee_name: "".to_string(),
+            payee_address: "".to_string(),
+            payee_zip: "".to_string(),
+            payee_foreign_address: "".to_string(),
+            payor_tin: "".to_string(),
+            payor_name: "".to_string(),
+            payor_address: "".to_string(),
+            payor_zip: "".to_string(),
+            payor_signatory: "".to_string(),
+            payor_title_tin: "".to_string(),
+            payor_title: "".to_string(),
+            payor_rep_tin: "".to_string(),
+            payor_signature_url: "".to_string(),
+            payee_signatory: "".to_string(),
+            payee_title_tin: "".to_string(),
+            table1: default_rows(),
+            table2: default_rows(),
+        }
+    }
+}
+
 

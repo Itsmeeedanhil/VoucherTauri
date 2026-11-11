@@ -41,6 +41,11 @@ namespace QBBridge
         public string bank_account = "";
         public string ap_account = "";
         public string tin = "";
+        public string payee_zip = "";
+        public string payor_name = "";
+        public string payor_address = "";
+        public string payor_tin = "";
+        public string payor_zip = "";
         public string po_number = "";
         public string memo = "";
         public double total_amount = 0.0;
@@ -100,6 +105,11 @@ namespace QBBridge
                 else
                 {
                     resp = QueryCheckOrBillPayment(sessionManager, refNumber, acctNumById, acctNumByName, itemAcctMap);
+                }
+
+                if (resp != null && resp.success)
+                {
+                    PopulateCompanyInfo(sessionManager, resp);
                 }
 
                 PrintJson(resp);
@@ -415,6 +425,9 @@ namespace QBBridge
                 br.date = chk.TxnDate != null ? chk.TxnDate.GetValue().ToString("MM/dd/yyyy") : "";
                 br.payee_name = chk.PayeeEntityRef != null && chk.PayeeEntityRef.FullName != null ? chk.PayeeEntityRef.FullName.GetValue() : "";
                 br.payee_address = ExtractAddress(chk.Address);
+                br.payee_zip = chk.Address != null && chk.Address.PostalCode != null ? chk.Address.PostalCode.GetValue() : "";
+                string payeeListId = chk.PayeeEntityRef != null && chk.PayeeEntityRef.ListID != null ? chk.PayeeEntityRef.ListID.GetValue() : "";
+                QueryVendorDetails(sm, payeeListId, br.payee_name, br);
 
                 string bankFullName = chk.AccountRef != null && chk.AccountRef.FullName != null ? chk.AccountRef.FullName.GetValue() : "";
                 string bankListId = chk.AccountRef != null && chk.AccountRef.ListID != null ? chk.AccountRef.ListID.GetValue() : "";
@@ -529,6 +542,9 @@ namespace QBBridge
                     br.date = bp.TxnDate != null ? bp.TxnDate.GetValue().ToString("MM/dd/yyyy") : "";
                     br.payee_name = bp.PayeeEntityRef != null && bp.PayeeEntityRef.FullName != null ? bp.PayeeEntityRef.FullName.GetValue() : "";
                     br.payee_address = ExtractAddress(bp.Address);
+                    br.payee_zip = bp.Address != null && bp.Address.PostalCode != null ? bp.Address.PostalCode.GetValue() : "";
+                    string payeeListId = bp.PayeeEntityRef != null && bp.PayeeEntityRef.ListID != null ? bp.PayeeEntityRef.ListID.GetValue() : "";
+                    QueryVendorDetails(sm, payeeListId, br.payee_name, br);
 
                     string bankFullName = bp.BankAccountRef != null && bp.BankAccountRef.FullName != null ? bp.BankAccountRef.FullName.GetValue() : "";
                     string bankListId = bp.BankAccountRef != null && bp.BankAccountRef.ListID != null ? bp.BankAccountRef.ListID.GetValue() : "";
@@ -657,6 +673,94 @@ namespace QBBridge
             return result;
         }
 
+        static void PopulateCompanyInfo(QBSessionManager sm, BridgeResponse br)
+        {
+            try
+            {
+                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
+                req.Attributes.OnError = ENRqOnError.roeContinue;
+                req.AppendCompanyQueryRq();
+
+                IMsgSetResponse resp = sm.DoRequests(req);
+                if (resp.ResponseList != null && resp.ResponseList.Count > 0)
+                {
+                    IResponse r = resp.ResponseList.GetAt(0);
+                    ICompanyRet comp = r.Detail as ICompanyRet;
+                    if (comp != null)
+                    {
+                        if (comp.LegalCompanyName != null && !string.IsNullOrEmpty(comp.LegalCompanyName.GetValue()))
+                            br.payor_name = comp.LegalCompanyName.GetValue();
+                        else if (comp.CompanyName != null && !string.IsNullOrEmpty(comp.CompanyName.GetValue()))
+                            br.payor_name = comp.CompanyName.GetValue();
+
+                        if (comp.EIN != null && !string.IsNullOrEmpty(comp.EIN.GetValue()))
+                            br.payor_tin = comp.EIN.GetValue();
+
+                        IAddress compAddr = comp.LegalAddress != null ? comp.LegalAddress : comp.Address;
+                        if (compAddr != null)
+                        {
+                            List<string> parts = new List<string>();
+                            if (compAddr.Addr1 != null && !string.IsNullOrEmpty(compAddr.Addr1.GetValue())) parts.Add(compAddr.Addr1.GetValue());
+                            if (compAddr.Addr2 != null && !string.IsNullOrEmpty(compAddr.Addr2.GetValue())) parts.Add(compAddr.Addr2.GetValue());
+                            if (compAddr.Addr3 != null && !string.IsNullOrEmpty(compAddr.Addr3.GetValue())) parts.Add(compAddr.Addr3.GetValue());
+                            if (compAddr.City != null && !string.IsNullOrEmpty(compAddr.City.GetValue())) parts.Add(compAddr.City.GetValue());
+                            if (compAddr.State != null && !string.IsNullOrEmpty(compAddr.State.GetValue())) parts.Add(compAddr.State.GetValue());
+                            br.payor_address = string.Join(", ", parts.ToArray());
+                            if (compAddr.PostalCode != null && !string.IsNullOrEmpty(compAddr.PostalCode.GetValue()))
+                                br.payor_zip = compAddr.PostalCode.GetValue();
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
+        static void QueryVendorDetails(QBSessionManager sm, string listId, string fullName, BridgeResponse br)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(listId) && string.IsNullOrEmpty(fullName)) return;
+                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
+                req.Attributes.OnError = ENRqOnError.roeContinue;
+                IVendorQuery vq = req.AppendVendorQueryRq();
+                if (!string.IsNullOrEmpty(listId))
+                {
+                    vq.ORVendorListQuery.ListIDList.Add(listId);
+                }
+                else
+                {
+                    vq.ORVendorListQuery.FullNameList.Add(fullName);
+                }
+
+                IMsgSetResponse resp = sm.DoRequests(req);
+                if (resp.ResponseList != null && resp.ResponseList.Count > 0)
+                {
+                    IResponse r = resp.ResponseList.GetAt(0);
+                    IVendorRetList list = r.Detail as IVendorRetList;
+                    if (list != null && list.Count > 0)
+                    {
+                        IVendorRet v = list.GetAt(0);
+                        if (v.VendorTaxIdent != null && !string.IsNullOrEmpty(v.VendorTaxIdent.GetValue()))
+                        {
+                            br.tin = v.VendorTaxIdent.GetValue();
+                        }
+                        if (v.VendorAddress != null)
+                        {
+                            if (string.IsNullOrEmpty(br.payee_address))
+                            {
+                                br.payee_address = ExtractAddress(v.VendorAddress);
+                            }
+                            if (string.IsNullOrEmpty(br.payee_zip) && v.VendorAddress.PostalCode != null && !string.IsNullOrEmpty(v.VendorAddress.PostalCode.GetValue()))
+                            {
+                                br.payee_zip = v.VendorAddress.PostalCode.GetValue();
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         static string ExtractAddress(IAddress addr)
         {
             if (addr == null) return "";
@@ -665,6 +769,7 @@ namespace QBBridge
             if (addr.Addr3 != null && !string.IsNullOrEmpty(addr.Addr3.GetValue())) parts.Add(addr.Addr3.GetValue());
             if (addr.City != null && !string.IsNullOrEmpty(addr.City.GetValue())) parts.Add(addr.City.GetValue());
             if (addr.State != null && !string.IsNullOrEmpty(addr.State.GetValue())) parts.Add(addr.State.GetValue());
+            if (addr.PostalCode != null && !string.IsNullOrEmpty(addr.PostalCode.GetValue())) parts.Add(addr.PostalCode.GetValue());
             return string.Join(", ", parts.ToArray());
         }
 
@@ -692,6 +797,11 @@ namespace QBBridge
             sb.AppendFormat("\"bank_account\":\"{0}\",", EscapeJson(r.bank_account));
             sb.AppendFormat("\"ap_account\":\"{0}\",", EscapeJson(r.ap_account));
             sb.AppendFormat("\"tin\":\"{0}\",", EscapeJson(r.tin));
+            sb.AppendFormat("\"payee_zip\":\"{0}\",", EscapeJson(r.payee_zip));
+            sb.AppendFormat("\"payor_name\":\"{0}\",", EscapeJson(r.payor_name));
+            sb.AppendFormat("\"payor_address\":\"{0}\",", EscapeJson(r.payor_address));
+            sb.AppendFormat("\"payor_tin\":\"{0}\",", EscapeJson(r.payor_tin));
+            sb.AppendFormat("\"payor_zip\":\"{0}\",", EscapeJson(r.payor_zip));
             sb.AppendFormat("\"po_number\":\"{0}\",", EscapeJson(r.po_number));
             sb.AppendFormat("\"memo\":\"{0}\",", EscapeJson(r.memo));
             sb.AppendFormat(CultureInfo.InvariantCulture, "\"total_amount\":{0:F2},", r.total_amount);

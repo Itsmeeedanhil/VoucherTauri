@@ -33,7 +33,26 @@ export interface BradwellFieldAnchor {
  * Exact data-only anchor coordinates (in inches on an 8.5" x 11.0" Letter page)
  * aligned to the pre-printed Bradwell Check Voucher Template.
  */
-export const BRADWELL_FIELD_ANCHORS: Record<BradwellFieldKey, BradwellFieldAnchor> = {
+export type CvFieldKey = Exclude<
+  BradwellFieldKey,
+  | "bir2307_from_date"
+  | "bir2307_to_date"
+  | "bir2307_payee_tin"
+  | "bir2307_payee_name"
+  | "bir2307_payee_address"
+  | "bir2307_payee_zip"
+  | "bir2307_foreign_address"
+  | "bir2307_payor_tin"
+  | "bir2307_payor_name"
+  | "bir2307_payor_address"
+  | "bir2307_payor_zip"
+  | "bir2307_table1"
+  | "bir2307_table2"
+  | "bir2307_payor_signatory"
+  | "bir2307_payee_signatory"
+>;
+
+export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   payee_name: {
     key: "payee_name",
     label: "Payee Name (PAYEE:)",
