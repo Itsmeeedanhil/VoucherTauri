@@ -7,7 +7,7 @@ import {
   Form2307Data,
   Form2307Row,
   FormType,
-  SeriesConfig,
+  LayoutConfig,
   SignatoriesConfig,
   VoucherData,
 } from "./types/voucher";
@@ -59,7 +59,8 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
   id: "bradwell",
   code: "BRADWELL",
   name: "Bradwell Sales and Marketing Corp.",
-  address: "#84-B Malakas St. Pinyahan Diliman, 1100 Quezon City NCR, Second District Philippines",
+  address:
+    "#84-B Malakas St. Pinyahan Diliman, 1100 Quezon City NCR, Second District Philippines",
   contact_number: "(02) 8635-0000",
   website: "",
   tin: "010-261-476-00000",
@@ -68,7 +69,7 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
     "Mapleway International Distributions Corp.",
     "StoneBridge Materials Corp.",
   ],
-  enabled_forms: ["CV", "BIR2307"],
+  enabled_forms: ["CV", "Check", "BIR2307"],
   logo_url: null,
   layout_config: {
     page_size: "Letter",
@@ -109,7 +110,6 @@ export function App() {
     DEFAULT_CLIENT_PROFILE.sub_companies[0]
   );
   const [refNumber, setRefNumber] = useState<string>("");
-  const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const [signatories, setSignatories] = useState<SignatoriesConfig | null>(
     null
   );
@@ -149,42 +149,26 @@ export function App() {
     init();
   }, []);
 
-  // Load per-company Series & Signatories when company or client changes
+  // Load Signatories & sync active company name when company or client changes
   useEffect(() => {
     async function loadMeta() {
-      const seriesKey = selectedCompany || selectedClient.code;
       try {
-        const [ser, sig] = await Promise.all([
-          invoke<SeriesConfig>("get_series", {
-            clientCode: seriesKey,
-            formType: "CV",
-          }),
-          invoke<SignatoriesConfig>("get_signatories", {
-            clientCode: selectedClient.code,
-          }),
-        ]);
-        setSeriesConfig(ser);
+        const sig = await invoke<SignatoriesConfig>("get_signatories", {
+          clientCode: selectedClient.code,
+        });
         setSignatories(sig);
-
-        const formatted = ser.prefix
-          ? `${ser.prefix}${String(ser.current_number).padStart(
-              ser.digit_count,
-              "0"
-            )}`
-          : String(ser.current_number).padStart(ser.digit_count, "0");
-
-        setVoucherData((prev) =>
-          prev
-            ? {
-                ...prev,
-                company_name: selectedCompany,
-                series_number: formatted,
-              }
-            : null
-        );
       } catch (err) {
         console.warn("Meta fetch fallback:", err);
       }
+
+      setVoucherData((prev) =>
+        prev
+          ? {
+              ...prev,
+              company_name: selectedCompany,
+            }
+          : null
+      );
     }
     loadMeta();
   }, [selectedClient, selectedCompany]);
@@ -201,7 +185,6 @@ export function App() {
     }
     setIsLoading(true);
     setErrorMsg(null);
-    // Reset BIR 2307 state immediately when searching a new Reference Number
     setBir2307Data(createDefaultBir2307(selectedCompany, selectedClient));
     try {
       const data = await invoke<VoucherData>("query_quickbooks_voucher", {
@@ -210,9 +193,11 @@ export function App() {
         companyName: selectedCompany,
         refNumber: refNumber.trim(),
       });
-      setVoucherData(data);
+      setVoucherData({
+        ...data,
+        series_number: data.ref_number,
+      });
 
-      // Reset all BIR 2307 fields to a clean slate before auto-filling from the newly searched QuickBooks Check
       setBir2307Data(() => {
         const fresh = createDefaultBir2307(selectedCompany, selectedClient);
         const zipMatch = (data.payee_address || "").match(/\b(\d{4})\b/);
@@ -225,10 +210,9 @@ export function App() {
           ""
         ).match(/\b(\d{4})\b/);
         const extractedPayorZip =
-          data.payor_zip || (payorZipMatch ? payorZipMatch[1] : "1110");
+          data.payor_zip || (payorZipMatch ? payorZipMatch[1] : "1100");
 
-        // Parse check date (MM/DD/YYYY) to determine which month of the quarter it falls into
-        let mIndex = 0; // 0 = 1st month, 1 = 2nd month, 2 = 3rd month
+        let mIndex = 0;
         let fromDate = "";
         let toDate = "";
         const parts = (data.date || "").split("/");
@@ -245,7 +229,6 @@ export function App() {
           }
         }
 
-        // Look for any Withholding Tax / EWT credit line and gross expense line in QuickBooks line_items
         const ewtLine = data.line_items.find(
           (li) =>
             li.credit > 0 &&
@@ -332,36 +315,6 @@ export function App() {
     [selectedCompany]
   );
 
-  const handleUpdateSeries = async (newNum: number, newPrefix: string) => {
-    if (!seriesConfig) return;
-    const seriesKey = selectedCompany || selectedClient.code;
-    const updated: SeriesConfig = {
-      ...seriesConfig,
-      client_code: seriesKey,
-      current_number: newNum,
-      prefix: newPrefix,
-    };
-    setSeriesConfig(updated);
-    try {
-      await invoke("update_series", { config: updated });
-      const formatted = updated.prefix
-        ? `${updated.prefix}${String(updated.current_number).padStart(
-            updated.digit_count,
-            "0"
-          )}`
-        : String(updated.current_number).padStart(updated.digit_count, "0");
-
-      if (voucherData) {
-        setVoucherData({
-          ...voucherData,
-          series_number: formatted,
-        });
-      }
-    } catch (err: any) {
-      setErrorMsg(String(err));
-    }
-  };
-
   const handleSaveClientProfile = async (updated: ClientProfile) => {
     setSelectedClient(updated);
     setClients((prev) =>
@@ -372,6 +325,13 @@ export function App() {
     } catch (err: any) {
       setErrorMsg(String(err));
     }
+  };
+
+  const handleUpdateLayoutConfig = (next: LayoutConfig) => {
+    handleSaveClientProfile({
+      ...selectedClient,
+      layout_config: next,
+    });
   };
 
   const handleUpdateFieldOffset = (
@@ -400,6 +360,8 @@ export function App() {
         ...cfg,
         preprinted_x_offset_mm: 0,
         preprinted_y_offset_mm: 0,
+        check_x_offset_mm: 0,
+        check_y_offset_mm: 0,
         field_offsets: {},
       },
     };
@@ -436,36 +398,16 @@ export function App() {
 
     window.print();
     document.title = prevTitle;
-    if (seriesConfig) {
-      const seriesKey = selectedCompany || selectedClient.code;
-      try {
-        const nextSer = await invoke<SeriesConfig>("increment_series", {
-          clientCode: seriesKey,
-          formType: "CV",
-        });
-        setSeriesConfig(nextSer);
-        const formatted = nextSer.prefix
-          ? `${nextSer.prefix}${String(nextSer.current_number).padStart(
-              nextSer.digit_count,
-              "0"
-            )}`
-          : String(nextSer.current_number).padStart(nextSer.digit_count, "0");
-        if (voucherData) {
-          setVoucherData({
-            ...voucherData,
-            series_number: formatted,
-          });
-        }
-      } catch (err) {
-        console.error("Failed to auto-increment CV series:", err);
-      }
-    }
   };
 
   return (
     <div
       className={`app-shell flex h-screen w-screen overflow-hidden bg-slate-950 ${
-        activeForm === "BIR2307" ? "mode-bir2307" : "mode-cv"
+        activeForm === "BIR2307"
+          ? "mode-bir2307"
+          : activeForm === "Check"
+          ? "mode-check"
+          : "mode-cv"
       }`}
     >
       <Sidebar
@@ -484,8 +426,6 @@ export function App() {
         onRefNumberChange={setRefNumber}
         onSearchVoucher={fetchVoucher}
         isLoading={isLoading}
-        seriesConfig={seriesConfig}
-        onUpdateSeries={handleUpdateSeries}
         payeeOverride={payeeOverride}
         onPayeeOverrideChange={setPayeeOverride}
         onOpenSignatoriesModal={() => setIsSignatoriesOpen(true)}
@@ -503,6 +443,7 @@ export function App() {
           handleChangeBir2307(fresh);
         }}
         client={selectedClient}
+        onUpdateLayoutConfig={handleUpdateLayoutConfig}
         payeeOverride={payeeOverride}
         errorMsg={errorMsg}
         showWireframeGuide={showWireframeGuide}

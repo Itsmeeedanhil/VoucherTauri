@@ -32,6 +32,10 @@ export interface BradwellFieldAnchor {
 
 export type CvFieldKey = Exclude<
   BradwellFieldKey,
+  | "check_leaf_date"
+  | "check_leaf_payee"
+  | "check_leaf_amount"
+  | "check_leaf_words"
   | "bir2307_from_date"
   | "bir2307_to_date"
   | "bir2307_payee_tin"
@@ -865,14 +869,14 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
         <div className="line-clamp-2 leading-tight">{displayAddress}</div>
       </div>
 
-      {/* CV SERIES NUMBER */}
+      {/* CV NUMBER (Uses Reference Number) */}
       <div
         className={fieldCalibrationClass("cv_number")}
         style={getFieldStyle("cv_number")}
         onMouseDown={(e) => handleMouseDownField(e, "cv_number")}
         title="Drag to adjust CV Number position"
       >
-        {data.series_number}
+        {data.ref_number}
       </div>
 
       {/* VOUCHER DATE */}

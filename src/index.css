@@ -144,6 +144,14 @@ aside {
     transform-origin: top left !important;
   }
 
+  .check-leaf-page {
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
   .data-field-node,
   .data-field-node * {
     outline: none !important;

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   Building2,
+  CreditCard,
   Eye,
   FileSpreadsheet,
   Layers,
@@ -14,12 +15,17 @@ import {
   FieldOffset,
   Form2307Data,
   FormType,
+  LayoutConfig,
   VoucherData,
 } from "../types/voucher";
 import {
   BRADWELL_FIELD_ANCHORS,
   BradwellCheckVoucherLayout,
 } from "./layouts/BradwellCheckVoucherLayout";
+import {
+  CHECK_FIELD_ANCHORS,
+  CheckPrintLayout,
+} from "./layouts/CheckPrintLayout";
 import {
   BIR2307_FIELD_ANCHORS,
   Bir2307Layout,
@@ -34,6 +40,7 @@ interface Props {
   onSaveBir2307: (data: Form2307Data) => Promise<void>;
   onResetBir2307: () => void;
   client: ClientProfile;
+  onUpdateLayoutConfig: (next: LayoutConfig) => void;
   payeeOverride: string;
   errorMsg: string | null;
   showWireframeGuide: boolean;
@@ -54,6 +61,7 @@ export const VoucherCanvas: React.FC<Props> = ({
   onSaveBir2307,
   onResetBir2307,
   client,
+  onUpdateLayoutConfig,
   payeeOverride,
   errorMsg,
   showWireframeGuide,
@@ -73,7 +81,12 @@ export const VoucherCanvas: React.FC<Props> = ({
   const activeAnchors: Record<
     string,
     { label: string; defaultFontPt: number }
-  > = activeForm === "CV" ? BRADWELL_FIELD_ANCHORS : BIR2307_FIELD_ANCHORS;
+  > =
+    activeForm === "CV"
+      ? BRADWELL_FIELD_ANCHORS
+      : activeForm === "Check"
+      ? CHECK_FIELD_ANCHORS
+      : BIR2307_FIELD_ANCHORS;
 
   const currentFieldOffset: FieldOffset = selectedField
     ? cfg.field_offsets?.[selectedField] ?? {
@@ -137,6 +150,29 @@ export const VoucherCanvas: React.FC<Props> = ({
                   : "Company Header: Hidden"}
               </button>
             </>
+          ) : activeForm === "Check" ? (
+            <label className="flex items-center gap-1.5 text-xs text-slate-300 bg-slate-800/70 border border-slate-700 rounded-lg px-2.5 py-1">
+              <span className="text-[11px] text-slate-400">
+                Date Digit Spacing:
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={6}
+                step={1}
+                value={cfg.check_date_spacing ?? 2}
+                onChange={(e) =>
+                  onUpdateLayoutConfig({
+                    ...cfg,
+                    check_date_spacing: Math.max(
+                      0,
+                      Math.min(6, parseInt(e.target.value, 10) || 0)
+                    ),
+                  })
+                }
+                className="w-12 bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs text-white font-mono"
+              />
+            </label>
           ) : (
             <>
               <button
@@ -301,6 +337,33 @@ export const VoucherCanvas: React.FC<Props> = ({
               selectedField={selectedField}
               onSelectField={onSelectField}
               onUpdateFieldOffset={onUpdateFieldOffset}
+            />
+          )
+        ) : activeForm === "Check" ? (
+          !voucherData ? (
+            <div className="no-print my-auto text-center max-w-md p-8 rounded-2xl border border-slate-800 bg-slate-900/50 text-slate-400 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mx-auto text-blue-400">
+                <CreditCard className="w-6 h-6" />
+              </div>
+              <h2 className="text-sm font-bold text-white">
+                Enter Check Reference Number for Cheque Printing
+              </h2>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Make sure QuickBooks Desktop is open, enter a Check Reference
+                Number in the left panel, and click{" "}
+                <span className="text-blue-400 font-semibold">SEARCH</span>.
+              </p>
+            </div>
+          ) : (
+            <CheckPrintLayout
+              voucher={voucherData}
+              client={client}
+              payeeOverride={payeeOverride}
+              calibrationMode={calibrationMode}
+              selectedField={selectedField}
+              onSelectField={onSelectField}
+              onUpdateFieldOffset={onUpdateFieldOffset}
+              onChangeLayout={onUpdateLayoutConfig}
             />
           )
         ) : (

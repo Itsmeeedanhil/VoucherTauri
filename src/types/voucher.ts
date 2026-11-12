@@ -24,6 +24,10 @@ export type BradwellFieldKey =
   | "bank_name"
   | "check_no"
   | "check_date"
+  | "check_leaf_date"
+  | "check_leaf_payee"
+  | "check_leaf_amount"
+  | "check_leaf_words"
   | "bir2307_from_date"
   | "bir2307_to_date"
   | "bir2307_payee_tin"
@@ -153,10 +157,11 @@ export interface VoucherData {
   signatories: SignatoriesConfig;
 }
 
-export type FormType = "CV" | "BIR2307";
+export type FormType = "CV" | "Check" | "BIR2307";
 
 export const FORM_LABELS: Record<FormType, string> = {
   CV: "Check Voucher",
+  Check: "Cheque Printing",
   BIR2307: "BIR Form 2307",
 };
 
