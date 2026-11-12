@@ -1,8 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
-using QBFC16Lib;
+using System.Xml;
+
+[assembly: AssemblyTitle("VoucherPRO QuickBooks Bridge")]
+[assembly: AssemblyDescription("QuickBooks Desktop Connector for VoucherPRO")]
+[assembly: AssemblyCompany("VoucherPRO")]
+[assembly: AssemblyProduct("VoucherPRO")]
+[assembly: AssemblyCopyright("Copyright (c) 2026 VoucherPRO")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: ComVisible(false)]
 
 namespace QBBridge
 {
@@ -60,6 +71,114 @@ namespace QBBridge
         public string AccountNumber = "";
     }
 
+    /// <summary>
+    /// Connects directly to QuickBooks Desktop's built-in QBXMLRP2.RequestProcessor COM server
+    /// via late-binding so no separate QBFC16 installer is required on client machines.
+    /// </summary>
+    public class QbXmlSession : IDisposable
+    {
+        private object _rp = null;
+        private Type _rpType = null;
+        private string _ticket = null;
+        private bool _connOpen = false;
+
+        public void Open(string appName)
+        {
+            string[] progIds = new string[]
+            {
+                "QBXMLRP2.RequestProcessor.2",
+                "QBXMLRP2.RequestProcessor.1",
+                "QBXMLRP2.RequestProcessor"
+            };
+
+            foreach (string progId in progIds)
+            {
+                _rpType = Type.GetTypeFromProgID(progId, false);
+                if (_rpType != null)
+                {
+                    try
+                    {
+                        _rp = Activator.CreateInstance(_rpType);
+                        if (_rp != null) break;
+                    }
+                    catch { _rp = null; }
+                }
+            }
+
+            if (_rp == null)
+            {
+                throw new Exception("QuickBooks Desktop RequestProcessor (QBXMLRP2) is not registered on this PC. Make sure QuickBooks Desktop is installed.");
+            }
+
+            // localQBD = 1
+            _rpType.InvokeMember(
+                "OpenConnection2",
+                BindingFlags.InvokeMethod,
+                null,
+                _rp,
+                new object[] { "", appName, 1 }
+            );
+            _connOpen = true;
+
+            // qbFileOpenDoNotCare = 2
+            object ticketObj = _rpType.InvokeMember(
+                "BeginSession",
+                BindingFlags.InvokeMethod,
+                null,
+                _rp,
+                new object[] { "", 2 }
+            );
+            _ticket = ticketObj != null ? ticketObj.ToString() : "";
+        }
+
+        public XmlDocument ProcessRequest(string innerRequestsXml)
+        {
+            string fullXml =
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
+                "<?qbxml version=\"13.0\"?>" +
+                "<QBXML><QBXMLMsgsRq onError=\"continueOnError\">" +
+                innerRequestsXml +
+                "</QBXMLMsgsRq></QBXML>";
+
+            object respObj = _rpType.InvokeMember(
+                "ProcessRequest",
+                BindingFlags.InvokeMethod,
+                null,
+                _rp,
+                new object[] { _ticket, fullXml }
+            );
+
+            string respXml = respObj != null ? respObj.ToString() : "";
+            XmlDocument doc = new XmlDocument();
+            if (!string.IsNullOrEmpty(respXml))
+            {
+                doc.LoadXml(respXml);
+            }
+            return doc;
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                if (_rp != null && _rpType != null)
+                {
+                    if (!string.IsNullOrEmpty(_ticket))
+                    {
+                        _rpType.InvokeMember("EndSession", BindingFlags.InvokeMethod, null, _rp, new object[] { _ticket });
+                        _ticket = null;
+                    }
+                    if (_connOpen)
+                    {
+                        _rpType.InvokeMember("CloseConnection", BindingFlags.InvokeMethod, null, _rp, new object[] { });
+                        _connOpen = false;
+                    }
+                }
+            }
+            catch { }
+        }
+    }
+
     class Program
     {
         [STAThread]
@@ -72,48 +191,43 @@ namespace QBBridge
                 return 1;
             }
 
-            string formType = args[0].Trim().ToUpperInvariant();
             string refNumber = args[1].Trim();
-
-            QBSessionManager sessionManager = null;
-            bool sessionBegun = false;
-            bool connectionOpen = false;
 
             try
             {
-                sessionManager = new QBSessionManager();
-                sessionManager.OpenConnection2("", "VoucherPro Check Data", ENConnectionType.ctLocalQBD);
-                connectionOpen = true;
-                sessionManager.BeginSession("", ENOpenMode.omDontCare);
-                sessionBegun = true;
-
-                // 1. Load Chart of Accounts lookup (ListID -> AccountNumber, FullName -> AccountNumber)
-                Dictionary<string, string> acctNumById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                Dictionary<string, string> acctNumByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                LoadChartOfAccounts(sessionManager, acctNumById, acctNumByName);
-
-                // 2. Load Item -> Asset/Expense Account lookup (matching VoucherPROV2 AccessQueries_DRC)
-                Dictionary<string, ItemAccountInfo> itemAcctMap = new Dictionary<string, ItemAccountInfo>(StringComparer.OrdinalIgnoreCase);
-                LoadItemAccountMap(sessionManager, acctNumById, acctNumByName, itemAcctMap);
-
-                BridgeResponse resp = null;
-
-                if (formType == "CV" || formType == "CHECK")
+                using (QbXmlSession session = new QbXmlSession())
                 {
-                    resp = QueryCheckOrBillPayment(sessionManager, refNumber, acctNumById, acctNumByName, itemAcctMap);
-                }
-                else
-                {
-                    resp = QueryCheckOrBillPayment(sessionManager, refNumber, acctNumById, acctNumByName, itemAcctMap);
-                }
+                    session.Open("VoucherPro Check Data");
 
-                if (resp != null && resp.success)
-                {
-                    PopulateCompanyInfo(sessionManager, resp);
-                }
+                    // 1. Load Chart of Accounts lookup (ListID -> AccountNumber, FullName -> AccountNumber)
+                    Dictionary<string, string> acctNumById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    Dictionary<string, string> acctNumByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    LoadChartOfAccounts(session, acctNumById, acctNumByName);
 
-                PrintJson(resp);
-                return resp.success ? 0 : 2;
+                    // 2. Load Item -> Asset/Expense Account lookup
+                    Dictionary<string, ItemAccountInfo> itemAcctMap = new Dictionary<string, ItemAccountInfo>(StringComparer.OrdinalIgnoreCase);
+                    LoadItemAccountMap(session, acctNumById, acctNumByName, itemAcctMap);
+
+                    BridgeResponse resp = QueryCheckOrBillPayment(session, refNumber, acctNumById, acctNumByName, itemAcctMap);
+
+                    if (resp != null && resp.success)
+                    {
+                        PopulateCompanyInfo(session, resp);
+                    }
+
+                    PrintJson(resp);
+                    return resp.success ? 0 : 2;
+                }
+            }
+            catch (TargetInvocationException tex)
+            {
+                string msg = tex.InnerException != null ? tex.InnerException.Message : tex.Message;
+                PrintJson(new BridgeResponse
+                {
+                    success = false,
+                    error = "QuickBooks SDK Error: " + msg
+                });
+                return 1;
             }
             catch (Exception ex)
             {
@@ -124,15 +238,44 @@ namespace QBBridge
                 });
                 return 1;
             }
-            finally
+        }
+
+        static string GetNodeText(XmlNode parent, string xpath)
+        {
+            if (parent == null) return "";
+            XmlNode n = parent.SelectSingleNode(xpath);
+            return n != null && n.InnerText != null ? n.InnerText.Trim() : "";
+        }
+
+        static double GetNodeDouble(XmlNode parent, string xpath)
+        {
+            string s = GetNodeText(parent, xpath);
+            if (string.IsNullOrEmpty(s)) return 0.0;
+            double v;
+            if (double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out v))
+                return v;
+            return 0.0;
+        }
+
+        static string FormatQbDate(string rawDate)
+        {
+            if (string.IsNullOrEmpty(rawDate)) return "";
+            DateTime dt;
+            if (DateTime.TryParse(rawDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt))
             {
-                try
-                {
-                    if (sessionBegun && sessionManager != null) sessionManager.EndSession();
-                    if (connectionOpen && sessionManager != null) sessionManager.CloseConnection();
-                }
-                catch { }
+                return dt.ToString("MM/dd/yyyy");
             }
+            return rawDate;
+        }
+
+        static string EscapeXml(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            return s.Replace("&", "&amp;")
+                    .Replace("<", "&lt;")
+                    .Replace(">", "&gt;")
+                    .Replace("\"", "&quot;")
+                    .Replace("'", "&apos;");
         }
 
         static string GetLeafAccountName(string fullName)
@@ -162,30 +305,21 @@ namespace QBBridge
         }
 
         static void LoadChartOfAccounts(
-            QBSessionManager sm,
+            QbXmlSession session,
             Dictionary<string, string> byId,
             Dictionary<string, string> byName)
         {
             try
             {
-                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
-                req.Attributes.OnError = ENRqOnError.roeContinue;
-                IAccountQuery acctQ = req.AppendAccountQueryRq();
-                acctQ.ORAccountListQuery.AccountListFilter.ActiveStatus.SetValue(ENActiveStatus.asAll);
-
-                IMsgSetResponse resp = sm.DoRequests(req);
-                if (resp.ResponseList == null || resp.ResponseList.Count == 0) return;
-
-                IResponse r = resp.ResponseList.GetAt(0);
-                IAccountRetList list = r.Detail as IAccountRetList;
+                XmlDocument doc = session.ProcessRequest("<AccountQueryRq><ActiveStatus>All</ActiveStatus></AccountQueryRq>");
+                XmlNodeList list = doc.SelectNodes("//AccountRet");
                 if (list == null) return;
 
-                for (int i = 0; i < list.Count; i++)
+                foreach (XmlNode a in list)
                 {
-                    IAccountRet a = list.GetAt(i);
-                    string num = a.AccountNumber != null ? a.AccountNumber.GetValue() : "";
-                    string id = a.ListID != null ? a.ListID.GetValue() : "";
-                    string name = a.FullName != null ? a.FullName.GetValue() : "";
+                    string num = GetNodeText(a, "AccountNumber");
+                    string id = GetNodeText(a, "ListID");
+                    string name = GetNodeText(a, "FullName");
                     string leaf = GetLeafAccountName(name);
 
                     if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(num))
@@ -200,116 +334,36 @@ namespace QBBridge
         }
 
         static void LoadItemAccountMap(
-            QBSessionManager sm,
+            QbXmlSession session,
             Dictionary<string, string> acctNumById,
             Dictionary<string, string> acctNumByName,
             Dictionary<string, ItemAccountInfo> itemAcctMap)
         {
             try
             {
-                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
-                req.Attributes.OnError = ENRqOnError.roeContinue;
-                IItemQuery itemQ = req.AppendItemQueryRq();
-                itemQ.ORListQuery.ListFilter.ActiveStatus.SetValue(ENActiveStatus.asAll);
+                XmlDocument doc = session.ProcessRequest("<ItemQueryRq><ActiveStatus>All</ActiveStatus></ItemQueryRq>");
+                XmlNode respNode = doc.SelectSingleNode("//ItemQueryRs");
+                if (respNode == null) return;
 
-                IMsgSetResponse resp = sm.DoRequests(req);
-                if (resp.ResponseList == null || resp.ResponseList.Count == 0) return;
-
-                IResponse r = resp.ResponseList.GetAt(0);
-                IORItemRetList list = r.Detail as IORItemRetList;
-                if (list == null) return;
-
-                for (int i = 0; i < list.Count; i++)
+                foreach (XmlNode it in respNode.ChildNodes)
                 {
-                    IORItemRet orItem = list.GetAt(i);
-                    string itemId = "";
-                    string itemFullName = "";
+                    if (!it.Name.EndsWith("Ret")) continue;
+
+                    string itemId = GetNodeText(it, "ListID");
+                    string itemFullName = GetNodeText(it, "FullName");
                     string acctId = "";
                     string acctFullName = "";
 
-                    if (orItem.ItemInventoryRet != null)
+                    XmlNode assetRef = it.SelectSingleNode("AssetAccountRef");
+                    XmlNode cogsRef = it.SelectSingleNode("COGSAccountRef");
+                    XmlNode spAcctRef = it.SelectSingleNode("SalesOrPurchase/AccountRef");
+                    XmlNode sapExpRef = it.SelectSingleNode("SalesAndPurchase/ExpenseAccountRef");
+
+                    XmlNode chosen = assetRef ?? spAcctRef ?? sapExpRef ?? cogsRef;
+                    if (chosen != null)
                     {
-                        var it = orItem.ItemInventoryRet;
-                        itemId = it.ListID != null ? it.ListID.GetValue() : "";
-                        itemFullName = it.FullName != null ? it.FullName.GetValue() : "";
-                        if (it.AssetAccountRef != null)
-                        {
-                            acctId = it.AssetAccountRef.ListID != null ? it.AssetAccountRef.ListID.GetValue() : "";
-                            acctFullName = it.AssetAccountRef.FullName != null ? it.AssetAccountRef.FullName.GetValue() : "";
-                        }
-                        if (string.IsNullOrEmpty(acctFullName) && it.COGSAccountRef != null)
-                        {
-                            acctId = it.COGSAccountRef.ListID != null ? it.COGSAccountRef.ListID.GetValue() : "";
-                            acctFullName = it.COGSAccountRef.FullName != null ? it.COGSAccountRef.FullName.GetValue() : "";
-                        }
-                    }
-                    else if (orItem.ItemInventoryAssemblyRet != null)
-                    {
-                        var it = orItem.ItemInventoryAssemblyRet;
-                        itemId = it.ListID != null ? it.ListID.GetValue() : "";
-                        itemFullName = it.FullName != null ? it.FullName.GetValue() : "";
-                        if (it.AssetAccountRef != null)
-                        {
-                            acctId = it.AssetAccountRef.ListID != null ? it.AssetAccountRef.ListID.GetValue() : "";
-                            acctFullName = it.AssetAccountRef.FullName != null ? it.AssetAccountRef.FullName.GetValue() : "";
-                        }
-                    }
-                    else if (orItem.ItemNonInventoryRet != null)
-                    {
-                        var it = orItem.ItemNonInventoryRet;
-                        itemId = it.ListID != null ? it.ListID.GetValue() : "";
-                        itemFullName = it.FullName != null ? it.FullName.GetValue() : "";
-                        if (it.ORSalesPurchase != null)
-                        {
-                            if (it.ORSalesPurchase.SalesOrPurchase != null && it.ORSalesPurchase.SalesOrPurchase.AccountRef != null)
-                            {
-                                acctId = it.ORSalesPurchase.SalesOrPurchase.AccountRef.ListID != null ? it.ORSalesPurchase.SalesOrPurchase.AccountRef.ListID.GetValue() : "";
-                                acctFullName = it.ORSalesPurchase.SalesOrPurchase.AccountRef.FullName != null ? it.ORSalesPurchase.SalesOrPurchase.AccountRef.FullName.GetValue() : "";
-                            }
-                            else if (it.ORSalesPurchase.SalesAndPurchase != null && it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef != null)
-                            {
-                                acctId = it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.ListID != null ? it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.ListID.GetValue() : "";
-                                acctFullName = it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.FullName != null ? it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.FullName.GetValue() : "";
-                            }
-                        }
-                    }
-                    else if (orItem.ItemServiceRet != null)
-                    {
-                        var it = orItem.ItemServiceRet;
-                        itemId = it.ListID != null ? it.ListID.GetValue() : "";
-                        itemFullName = it.FullName != null ? it.FullName.GetValue() : "";
-                        if (it.ORSalesPurchase != null)
-                        {
-                            if (it.ORSalesPurchase.SalesOrPurchase != null && it.ORSalesPurchase.SalesOrPurchase.AccountRef != null)
-                            {
-                                acctId = it.ORSalesPurchase.SalesOrPurchase.AccountRef.ListID != null ? it.ORSalesPurchase.SalesOrPurchase.AccountRef.ListID.GetValue() : "";
-                                acctFullName = it.ORSalesPurchase.SalesOrPurchase.AccountRef.FullName != null ? it.ORSalesPurchase.SalesOrPurchase.AccountRef.FullName.GetValue() : "";
-                            }
-                            else if (it.ORSalesPurchase.SalesAndPurchase != null && it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef != null)
-                            {
-                                acctId = it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.ListID != null ? it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.ListID.GetValue() : "";
-                                acctFullName = it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.FullName != null ? it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.FullName.GetValue() : "";
-                            }
-                        }
-                    }
-                    else if (orItem.ItemOtherChargeRet != null)
-                    {
-                        var it = orItem.ItemOtherChargeRet;
-                        itemId = it.ListID != null ? it.ListID.GetValue() : "";
-                        itemFullName = it.FullName != null ? it.FullName.GetValue() : "";
-                        if (it.ORSalesPurchase != null)
-                        {
-                            if (it.ORSalesPurchase.SalesOrPurchase != null && it.ORSalesPurchase.SalesOrPurchase.AccountRef != null)
-                            {
-                                acctId = it.ORSalesPurchase.SalesOrPurchase.AccountRef.ListID != null ? it.ORSalesPurchase.SalesOrPurchase.AccountRef.ListID.GetValue() : "";
-                                acctFullName = it.ORSalesPurchase.SalesOrPurchase.AccountRef.FullName != null ? it.ORSalesPurchase.SalesOrPurchase.AccountRef.FullName.GetValue() : "";
-                            }
-                            else if (it.ORSalesPurchase.SalesAndPurchase != null && it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef != null)
-                            {
-                                acctId = it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.ListID != null ? it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.ListID.GetValue() : "";
-                                acctFullName = it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.FullName != null ? it.ORSalesPurchase.SalesAndPurchase.ExpenseAccountRef.FullName.GetValue() : "";
-                            }
-                        }
+                        acctId = GetNodeText(chosen, "ListID");
+                        acctFullName = GetNodeText(chosen, "FullName");
                     }
 
                     if (!string.IsNullOrEmpty(acctFullName))
@@ -377,131 +431,120 @@ namespace QBBridge
         }
 
         static BridgeResponse QueryCheckOrBillPayment(
-            QBSessionManager sm,
+            QbXmlSession session,
             string refNumber,
             Dictionary<string, string> acctNumById,
             Dictionary<string, string> acctNumByName,
             Dictionary<string, ItemAccountInfo> itemAcctMap)
         {
-            // Batch both Regular Check Query and Bill Payment Check Query using US v13.0 (matching VoucherPROV2)
-            IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
-            req.Attributes.OnError = ENRqOnError.roeContinue;
+            string escapedRef = EscapeXml(refNumber);
+            string rqXml =
+                "<CheckQueryRq>" +
+                "<RefNumberFilter><MatchCriterion>StartsWith</MatchCriterion><RefNumber>" + escapedRef + "</RefNumber></RefNumberFilter>" +
+                "<IncludeLineItems>true</IncludeLineItems>" +
+                "</CheckQueryRq>" +
+                "<BillPaymentCheckQueryRq>" +
+                "<RefNumberFilter><MatchCriterion>StartsWith</MatchCriterion><RefNumber>" + escapedRef + "</RefNumber></RefNumberFilter>" +
+                "<IncludeLineItems>true</IncludeLineItems>" +
+                "</BillPaymentCheckQueryRq>";
 
-            ICheckQuery chkQ = req.AppendCheckQueryRq();
-            chkQ.ORTxnQuery.TxnFilter.ORRefNumberFilter.RefNumberFilter.MatchCriterion.SetValue(ENMatchCriterion.mcStartsWith);
-            chkQ.ORTxnQuery.TxnFilter.ORRefNumberFilter.RefNumberFilter.RefNumber.SetValue(refNumber);
-            chkQ.IncludeLineItems.SetValue(true);
+            XmlDocument doc = session.ProcessRequest(rqXml);
 
-            IBillPaymentCheckQuery bpQ = req.AppendBillPaymentCheckQueryRq();
-            bpQ.ORTxnQuery.TxnFilter.ORRefNumberFilter.RefNumberFilter.MatchCriterion.SetValue(ENMatchCriterion.mcStartsWith);
-            bpQ.ORTxnQuery.TxnFilter.ORRefNumberFilter.RefNumberFilter.RefNumber.SetValue(refNumber);
-            bpQ.IncludeLineItems.SetValue(true);
-
-            IMsgSetResponse resp = sm.DoRequests(req);
-            if (resp.ResponseList == null || resp.ResponseList.Count == 0)
-            {
-                return new BridgeResponse { success = false, error = "Empty response from QuickBooks." };
-            }
-
-            // 1. Check Response 0: Regular Check (Write Checks)
-            IResponse r0 = resp.ResponseList.GetAt(0);
-            ICheckRetList chkList = r0.Detail as ICheckRetList;
+            // 1. Check Response: Regular Check (Write Checks)
+            XmlNodeList chkList = doc.SelectNodes("//CheckRet");
             if (chkList != null && chkList.Count > 0)
             {
-                ICheckRet chk = null;
-                for (int i = 0; i < chkList.Count; i++)
+                XmlNode chk = null;
+                foreach (XmlNode candidate in chkList)
                 {
-                    ICheckRet candidate = chkList.GetAt(i);
-                    if (candidate.RefNumber != null && string.Equals(candidate.RefNumber.GetValue(), refNumber, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(GetNodeText(candidate, "RefNumber"), refNumber, StringComparison.OrdinalIgnoreCase))
                     {
                         chk = candidate;
                         break;
                     }
                 }
-                if (chk == null) chk = chkList.GetAt(0);
+                if (chk == null) chk = chkList[0];
 
                 BridgeResponse br = new BridgeResponse { success = true };
-                br.ref_number = chk.RefNumber != null ? chk.RefNumber.GetValue() : refNumber;
-                br.date = chk.TxnDate != null ? chk.TxnDate.GetValue().ToString("MM/dd/yyyy") : "";
-                br.payee_name = chk.PayeeEntityRef != null && chk.PayeeEntityRef.FullName != null ? chk.PayeeEntityRef.FullName.GetValue() : "";
-                br.payee_address = ExtractAddress(chk.Address);
-                br.payee_zip = chk.Address != null && chk.Address.PostalCode != null ? chk.Address.PostalCode.GetValue() : "";
-                string payeeListId = chk.PayeeEntityRef != null && chk.PayeeEntityRef.ListID != null ? chk.PayeeEntityRef.ListID.GetValue() : "";
-                QueryVendorDetails(sm, payeeListId, br.payee_name, br);
+                string foundRef = GetNodeText(chk, "RefNumber");
+                br.ref_number = !string.IsNullOrEmpty(foundRef) ? foundRef : refNumber;
+                br.date = FormatQbDate(GetNodeText(chk, "TxnDate"));
+                br.payee_name = GetNodeText(chk, "PayeeEntityRef/FullName");
+                XmlNode addrNode = chk.SelectSingleNode("Address");
+                br.payee_address = ExtractAddress(addrNode);
+                br.payee_zip = GetNodeText(addrNode, "PostalCode");
+                string payeeListId = GetNodeText(chk, "PayeeEntityRef/ListID");
+                QueryVendorDetails(session, payeeListId, br.payee_name, br);
 
-                string bankFullName = chk.AccountRef != null && chk.AccountRef.FullName != null ? chk.AccountRef.FullName.GetValue() : "";
-                string bankListId = chk.AccountRef != null && chk.AccountRef.ListID != null ? chk.AccountRef.ListID.GetValue() : "";
+                string bankFullName = GetNodeText(chk, "AccountRef/FullName");
+                string bankListId = GetNodeText(chk, "AccountRef/ListID");
                 string bankLeafName = GetLeafAccountName(bankFullName);
                 string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
 
                 br.bank_account = bankLeafName;
-                br.memo = chk.Memo != null ? chk.Memo.GetValue() : "";
-                br.total_amount = chk.Amount != null ? chk.Amount.GetValue() : 0.0;
+                br.memo = GetNodeText(chk, "Memo");
+                br.total_amount = GetNodeDouble(chk, "Amount");
 
                 List<LineItemDto> rawLines = new List<LineItemDto>();
 
-                if (chk.ExpenseLineRetList != null)
+                XmlNodeList expLines = chk.SelectNodes("ExpenseLineRet");
+                if (expLines != null)
                 {
-                    for (int i = 0; i < chk.ExpenseLineRetList.Count; i++)
+                    foreach (XmlNode exp in expLines)
                     {
-                        IExpenseLineRet exp = chk.ExpenseLineRetList.GetAt(i);
-                        string accName = exp.AccountRef != null && exp.AccountRef.FullName != null ? exp.AccountRef.FullName.GetValue() : "";
-                        string accId = exp.AccountRef != null && exp.AccountRef.ListID != null ? exp.AccountRef.ListID.GetValue() : "";
+                        string accName = GetNodeText(exp, "AccountRef/FullName");
+                        string accId = GetNodeText(exp, "AccountRef/ListID");
                         string accNum = LookupAccountNumber(accId, accName, acctNumById, acctNumByName);
-                        double amt = exp.Amount != null ? exp.Amount.GetValue() : 0.0;
+                        double amt = GetNodeDouble(exp, "Amount");
 
                         rawLines.Add(new LineItemDto
                         {
                             account_number = accNum,
                             account_name = GetLeafAccountName(accName),
-                            class_name = exp.ClassRef != null && exp.ClassRef.FullName != null ? exp.ClassRef.FullName.GetValue() : "",
-                            customer_job = exp.CustomerRef != null && exp.CustomerRef.FullName != null ? exp.CustomerRef.FullName.GetValue() : "",
-                            memo = exp.Memo != null ? exp.Memo.GetValue() : "",
+                            class_name = GetNodeText(exp, "ClassRef/FullName"),
+                            customer_job = GetNodeText(exp, "CustomerRef/FullName"),
+                            memo = GetNodeText(exp, "Memo"),
                             debit = amt >= 0 ? amt : 0.0,
                             credit = amt < 0 ? Math.Abs(amt) : 0.0
                         });
                     }
                 }
 
-                if (chk.ORItemLineRetList != null)
+                XmlNodeList itemLines = chk.SelectNodes("ItemLineRet");
+                if (itemLines != null)
                 {
-                    for (int i = 0; i < chk.ORItemLineRetList.Count; i++)
+                    foreach (XmlNode il in itemLines)
                     {
-                        IORItemLineRet orLine = chk.ORItemLineRetList.GetAt(i);
-                        if (orLine.ItemLineRet != null)
+                        string itemId = GetNodeText(il, "ItemRef/ListID");
+                        string itemName = GetNodeText(il, "ItemRef/FullName");
+                        double amt = GetNodeDouble(il, "Amount");
+
+                        string resolvedAcctName = GetLeafAccountName(itemName);
+                        string resolvedAcctNum = "";
+                        if (!string.IsNullOrEmpty(itemId) && itemAcctMap.ContainsKey(itemId))
                         {
-                            var il = orLine.ItemLineRet;
-                            string itemId = il.ItemRef != null && il.ItemRef.ListID != null ? il.ItemRef.ListID.GetValue() : "";
-                            string itemName = il.ItemRef != null && il.ItemRef.FullName != null ? il.ItemRef.FullName.GetValue() : "";
-                            double amt = il.Amount != null ? il.Amount.GetValue() : 0.0;
-
-                            string resolvedAcctName = GetLeafAccountName(itemName);
-                            string resolvedAcctNum = "";
-                            if (!string.IsNullOrEmpty(itemId) && itemAcctMap.ContainsKey(itemId))
-                            {
-                                resolvedAcctName = itemAcctMap[itemId].AccountLeafName;
-                                resolvedAcctNum = itemAcctMap[itemId].AccountNumber;
-                            }
-                            else if (!string.IsNullOrEmpty(itemName) && itemAcctMap.ContainsKey(itemName))
-                            {
-                                resolvedAcctName = itemAcctMap[itemName].AccountLeafName;
-                                resolvedAcctNum = itemAcctMap[itemName].AccountNumber;
-                            }
-
-                            rawLines.Add(new LineItemDto
-                            {
-                                account_number = resolvedAcctNum,
-                                account_name = resolvedAcctName,
-                                class_name = il.ClassRef != null && il.ClassRef.FullName != null ? il.ClassRef.FullName.GetValue() : "",
-                                customer_job = il.CustomerRef != null && il.CustomerRef.FullName != null ? il.CustomerRef.FullName.GetValue() : "",
-                                memo = il.Desc != null ? il.Desc.GetValue() : "",
-                                debit = amt >= 0 ? amt : 0.0,
-                                credit = amt < 0 ? Math.Abs(amt) : 0.0,
-                                quantity = il.Quantity != null ? il.Quantity.GetValue() : 0.0,
-                                unit_cost = il.Cost != null ? il.Cost.GetValue() : 0.0,
-                                item_name = itemName
-                            });
+                            resolvedAcctName = itemAcctMap[itemId].AccountLeafName;
+                            resolvedAcctNum = itemAcctMap[itemId].AccountNumber;
                         }
+                        else if (!string.IsNullOrEmpty(itemName) && itemAcctMap.ContainsKey(itemName))
+                        {
+                            resolvedAcctName = itemAcctMap[itemName].AccountLeafName;
+                            resolvedAcctNum = itemAcctMap[itemName].AccountNumber;
+                        }
+
+                        rawLines.Add(new LineItemDto
+                        {
+                            account_number = resolvedAcctNum,
+                            account_name = resolvedAcctName,
+                            class_name = GetNodeText(il, "ClassRef/FullName"),
+                            customer_job = GetNodeText(il, "CustomerRef/FullName"),
+                            memo = GetNodeText(il, "Desc"),
+                            debit = amt >= 0 ? amt : 0.0,
+                            credit = amt < 0 ? Math.Abs(amt) : 0.0,
+                            quantity = GetNodeDouble(il, "Quantity"),
+                            unit_cost = GetNodeDouble(il, "Cost"),
+                            item_name = itemName
+                        });
                     }
                 }
 
@@ -518,102 +561,100 @@ namespace QBBridge
                 return br;
             }
 
-            // 2. Check Response 1: Bill Payment Check (Pay Bills)
-            if (resp.ResponseList.Count > 1)
+            // 2. Bill Payment Check (Pay Bills)
+            XmlNodeList bpList = doc.SelectNodes("//BillPaymentCheckRet");
+            if (bpList != null && bpList.Count > 0)
             {
-                IResponse r1 = resp.ResponseList.GetAt(1);
-                IBillPaymentCheckRetList bpList = r1.Detail as IBillPaymentCheckRetList;
-                if (bpList != null && bpList.Count > 0)
+                XmlNode bp = null;
+                foreach (XmlNode candidate in bpList)
                 {
-                    IBillPaymentCheckRet bp = null;
-                    for (int i = 0; i < bpList.Count; i++)
+                    if (string.Equals(GetNodeText(candidate, "RefNumber"), refNumber, StringComparison.OrdinalIgnoreCase))
                     {
-                        IBillPaymentCheckRet candidate = bpList.GetAt(i);
-                        if (candidate.RefNumber != null && string.Equals(candidate.RefNumber.GetValue(), refNumber, StringComparison.OrdinalIgnoreCase))
-                        {
-                            bp = candidate;
-                            break;
-                        }
+                        bp = candidate;
+                        break;
                     }
-                    if (bp == null) bp = bpList.GetAt(0);
-
-                    BridgeResponse br = new BridgeResponse { success = true };
-                    br.ref_number = bp.RefNumber != null ? bp.RefNumber.GetValue() : refNumber;
-                    br.date = bp.TxnDate != null ? bp.TxnDate.GetValue().ToString("MM/dd/yyyy") : "";
-                    br.payee_name = bp.PayeeEntityRef != null && bp.PayeeEntityRef.FullName != null ? bp.PayeeEntityRef.FullName.GetValue() : "";
-                    br.payee_address = ExtractAddress(bp.Address);
-                    br.payee_zip = bp.Address != null && bp.Address.PostalCode != null ? bp.Address.PostalCode.GetValue() : "";
-                    string payeeListId = bp.PayeeEntityRef != null && bp.PayeeEntityRef.ListID != null ? bp.PayeeEntityRef.ListID.GetValue() : "";
-                    QueryVendorDetails(sm, payeeListId, br.payee_name, br);
-
-                    string bankFullName = bp.BankAccountRef != null && bp.BankAccountRef.FullName != null ? bp.BankAccountRef.FullName.GetValue() : "";
-                    string bankListId = bp.BankAccountRef != null && bp.BankAccountRef.ListID != null ? bp.BankAccountRef.ListID.GetValue() : "";
-                    string bankLeafName = GetLeafAccountName(bankFullName);
-                    string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
-
-                    string headerApFullName = bp.APAccountRef != null && bp.APAccountRef.FullName != null ? bp.APAccountRef.FullName.GetValue() : "Accounts Payable";
-                    string headerApListId = bp.APAccountRef != null && bp.APAccountRef.ListID != null ? bp.APAccountRef.ListID.GetValue() : "";
-                    string headerApLeafName = GetLeafAccountName(headerApFullName);
-                    string headerApAcctNum = LookupAccountNumber(headerApListId, headerApFullName, acctNumById, acctNumByName);
-
-                    br.bank_account = bankLeafName;
-                    br.ap_account = headerApLeafName;
-                    br.memo = bp.Memo != null ? bp.Memo.GetValue() : "";
-                    br.total_amount = bp.Amount != null ? bp.Amount.GetValue() : 0.0;
-
-                    List<LineItemDto> rawLines = new List<LineItemDto>();
-                    List<string> billMemos = new List<string>();
-
-                    if (bp.AppliedToTxnRetList != null && bp.AppliedToTxnRetList.Count > 0)
-                    {
-                        Dictionary<string, Tuple<string, string, string>> billInfoByTxnId = QueryAppliedBills(sm, bp.AppliedToTxnRetList, acctNumById, acctNumByName);
-
-                        for (int i = 0; i < bp.AppliedToTxnRetList.Count; i++)
-                        {
-                            IAppliedToTxnRet app = bp.AppliedToTxnRetList.GetAt(i);
-                            string txnId = app.TxnID != null ? app.TxnID.GetValue() : "";
-                            string billRef = app.RefNumber != null ? app.RefNumber.GetValue() : "";
-
-                            if (!string.IsNullOrEmpty(txnId) && billInfoByTxnId.ContainsKey(txnId))
-                            {
-                                var info = billInfoByTxnId[txnId];
-                                if (!string.IsNullOrEmpty(info.Item1)) headerApLeafName = info.Item1;
-                                if (!string.IsNullOrEmpty(info.Item2)) headerApAcctNum = info.Item2;
-                                if (!string.IsNullOrEmpty(info.Item3)) billMemos.Add(info.Item3);
-                            }
-                            else if (!string.IsNullOrEmpty(billRef) && string.IsNullOrEmpty(br.memo))
-                            {
-                                billMemos.Add("Bill #" + billRef);
-                            }
-                        }
-                    }
-
-                    if (string.IsNullOrEmpty(br.memo) && billMemos.Count > 0)
-                    {
-                        br.memo = string.Join("; ", billMemos.ToArray());
-                    }
-
-                    rawLines.Add(new LineItemDto
-                    {
-                        account_number = headerApAcctNum,
-                        account_name = !string.IsNullOrEmpty(headerApLeafName) ? headerApLeafName : "Accounts Payable",
-                        memo = br.memo,
-                        debit = br.total_amount,
-                        credit = 0.0
-                    });
-
-                    rawLines.Add(new LineItemDto
-                    {
-                        account_number = bankAcctNum,
-                        account_name = !string.IsNullOrEmpty(bankLeafName) ? bankLeafName : "Cash in Bank",
-                        memo = br.memo,
-                        debit = 0.0,
-                        credit = br.total_amount
-                    });
-
-                    br.line_items = ConsolidateLines(rawLines);
-                    return br;
                 }
+                if (bp == null) bp = bpList[0];
+
+                BridgeResponse br = new BridgeResponse { success = true };
+                string foundRef = GetNodeText(bp, "RefNumber");
+                br.ref_number = !string.IsNullOrEmpty(foundRef) ? foundRef : refNumber;
+                br.date = FormatQbDate(GetNodeText(bp, "TxnDate"));
+                br.payee_name = GetNodeText(bp, "PayeeEntityRef/FullName");
+                XmlNode addrNode = bp.SelectSingleNode("Address");
+                br.payee_address = ExtractAddress(addrNode);
+                br.payee_zip = GetNodeText(addrNode, "PostalCode");
+                string payeeListId = GetNodeText(bp, "PayeeEntityRef/ListID");
+                QueryVendorDetails(session, payeeListId, br.payee_name, br);
+
+                string bankFullName = GetNodeText(bp, "BankAccountRef/FullName");
+                string bankListId = GetNodeText(bp, "BankAccountRef/ListID");
+                string bankLeafName = GetLeafAccountName(bankFullName);
+                string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
+
+                string headerApFullName = GetNodeText(bp, "APAccountRef/FullName");
+                if (string.IsNullOrEmpty(headerApFullName)) headerApFullName = "Accounts Payable";
+                string headerApListId = GetNodeText(bp, "APAccountRef/ListID");
+                string headerApLeafName = GetLeafAccountName(headerApFullName);
+                string headerApAcctNum = LookupAccountNumber(headerApListId, headerApFullName, acctNumById, acctNumByName);
+
+                br.bank_account = bankLeafName;
+                br.ap_account = headerApLeafName;
+                br.memo = GetNodeText(bp, "Memo");
+                br.total_amount = GetNodeDouble(bp, "Amount");
+
+                List<LineItemDto> rawLines = new List<LineItemDto>();
+                List<string> billMemos = new List<string>();
+
+                XmlNodeList appliedList = bp.SelectNodes("AppliedToTxnRet");
+                if (appliedList != null && appliedList.Count > 0)
+                {
+                    Dictionary<string, Tuple<string, string, string>> billInfoByTxnId = QueryAppliedBills(session, appliedList, acctNumById, acctNumByName);
+
+                    foreach (XmlNode app in appliedList)
+                    {
+                        string txnId = GetNodeText(app, "TxnID");
+                        string billRef = GetNodeText(app, "RefNumber");
+
+                        if (!string.IsNullOrEmpty(txnId) && billInfoByTxnId.ContainsKey(txnId))
+                        {
+                            var info = billInfoByTxnId[txnId];
+                            if (!string.IsNullOrEmpty(info.Item1)) headerApLeafName = info.Item1;
+                            if (!string.IsNullOrEmpty(info.Item2)) headerApAcctNum = info.Item2;
+                            if (!string.IsNullOrEmpty(info.Item3)) billMemos.Add(info.Item3);
+                        }
+                        else if (!string.IsNullOrEmpty(billRef) && string.IsNullOrEmpty(br.memo))
+                        {
+                            billMemos.Add("Bill #" + billRef);
+                        }
+                    }
+                }
+
+                if (string.IsNullOrEmpty(br.memo) && billMemos.Count > 0)
+                {
+                    br.memo = string.Join("; ", billMemos.ToArray());
+                }
+
+                rawLines.Add(new LineItemDto
+                {
+                    account_number = headerApAcctNum,
+                    account_name = !string.IsNullOrEmpty(headerApLeafName) ? headerApLeafName : "Accounts Payable",
+                    memo = br.memo,
+                    debit = br.total_amount,
+                    credit = 0.0
+                });
+
+                rawLines.Add(new LineItemDto
+                {
+                    account_number = bankAcctNum,
+                    account_name = !string.IsNullOrEmpty(bankLeafName) ? bankLeafName : "Cash in Bank",
+                    memo = br.memo,
+                    debit = 0.0,
+                    credit = br.total_amount
+                });
+
+                br.line_items = ConsolidateLines(rawLines);
+                return br;
             }
 
             return new BridgeResponse
@@ -624,47 +665,43 @@ namespace QBBridge
         }
 
         static Dictionary<string, Tuple<string, string, string>> QueryAppliedBills(
-            QBSessionManager sm,
-            IAppliedToTxnRetList appliedList,
+            QbXmlSession session,
+            XmlNodeList appliedList,
             Dictionary<string, string> acctNumById,
             Dictionary<string, string> acctNumByName)
         {
             var result = new Dictionary<string, Tuple<string, string, string>>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
-                req.Attributes.OnError = ENRqOnError.roeContinue;
-                IBillQuery bq = req.AppendBillQueryRq();
-
-                for (int i = 0; i < appliedList.Count; i++)
+                StringBuilder sb = new StringBuilder("<BillQueryRq>");
+                int count = 0;
+                foreach (XmlNode app in appliedList)
                 {
-                    IAppliedToTxnRet app = appliedList.GetAt(i);
-                    if (app.TxnID != null && !string.IsNullOrEmpty(app.TxnID.GetValue()))
+                    string txnId = GetNodeText(app, "TxnID");
+                    if (!string.IsNullOrEmpty(txnId))
                     {
-                        bq.ORBillQuery.TxnIDList.Add(app.TxnID.GetValue());
+                        sb.Append("<TxnID>").Append(EscapeXml(txnId)).Append("</TxnID>");
+                        count++;
                     }
                 }
+                sb.Append("</BillQueryRq>");
+                if (count == 0) return result;
 
-                IMsgSetResponse resp = sm.DoRequests(req);
-                if (resp.ResponseList != null && resp.ResponseList.Count > 0)
+                XmlDocument doc = session.ProcessRequest(sb.ToString());
+                XmlNodeList bills = doc.SelectNodes("//BillRet");
+                if (bills != null)
                 {
-                    IResponse r = resp.ResponseList.GetAt(0);
-                    IBillRetList bills = r.Detail as IBillRetList;
-                    if (bills != null)
+                    foreach (XmlNode b in bills)
                     {
-                        for (int i = 0; i < bills.Count; i++)
+                        string txnId = GetNodeText(b, "TxnID");
+                        string apFull = GetNodeText(b, "APAccountRef/FullName");
+                        string apId = GetNodeText(b, "APAccountRef/ListID");
+                        string apLeaf = GetLeafAccountName(apFull);
+                        string apNum = LookupAccountNumber(apId, apFull, acctNumById, acctNumByName);
+                        string billMemo = GetNodeText(b, "Memo");
+                        if (!string.IsNullOrEmpty(txnId))
                         {
-                            IBillRet b = bills.GetAt(i);
-                            string txnId = b.TxnID != null ? b.TxnID.GetValue() : "";
-                            string apFull = b.APAccountRef != null && b.APAccountRef.FullName != null ? b.APAccountRef.FullName.GetValue() : "";
-                            string apId = b.APAccountRef != null && b.APAccountRef.ListID != null ? b.APAccountRef.ListID.GetValue() : "";
-                            string apLeaf = GetLeafAccountName(apFull);
-                            string apNum = LookupAccountNumber(apId, apFull, acctNumById, acctNumByName);
-                            string billMemo = b.Memo != null ? b.Memo.GetValue() : "";
-                            if (!string.IsNullOrEmpty(txnId))
-                            {
-                                result[txnId] = Tuple.Create(apLeaf, apNum, billMemo);
-                            }
+                            result[txnId] = Tuple.Create(apLeaf, apNum, billMemo);
                         }
                     }
                 }
@@ -673,87 +710,68 @@ namespace QBBridge
             return result;
         }
 
-        static void PopulateCompanyInfo(QBSessionManager sm, BridgeResponse br)
+        static void PopulateCompanyInfo(QbXmlSession session, BridgeResponse br)
         {
             try
             {
-                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
-                req.Attributes.OnError = ENRqOnError.roeContinue;
-                req.AppendCompanyQueryRq();
-
-                IMsgSetResponse resp = sm.DoRequests(req);
-                if (resp.ResponseList != null && resp.ResponseList.Count > 0)
+                XmlDocument doc = session.ProcessRequest("<CompanyQueryRq/>");
+                XmlNode comp = doc.SelectSingleNode("//CompanyRet");
+                if (comp != null)
                 {
-                    IResponse r = resp.ResponseList.GetAt(0);
-                    ICompanyRet comp = r.Detail as ICompanyRet;
-                    if (comp != null)
+                    string legalName = GetNodeText(comp, "LegalCompanyName");
+                    string compName = GetNodeText(comp, "CompanyName");
+                    br.payor_name = !string.IsNullOrEmpty(legalName) ? legalName : compName;
+                    br.payor_tin = GetNodeText(comp, "EIN");
+
+                    XmlNode compAddr = comp.SelectSingleNode("LegalAddress") ?? comp.SelectSingleNode("Address");
+                    if (compAddr != null)
                     {
-                        if (comp.LegalCompanyName != null && !string.IsNullOrEmpty(comp.LegalCompanyName.GetValue()))
-                            br.payor_name = comp.LegalCompanyName.GetValue();
-                        else if (comp.CompanyName != null && !string.IsNullOrEmpty(comp.CompanyName.GetValue()))
-                            br.payor_name = comp.CompanyName.GetValue();
-
-                        if (comp.EIN != null && !string.IsNullOrEmpty(comp.EIN.GetValue()))
-                            br.payor_tin = comp.EIN.GetValue();
-
-                        IAddress compAddr = comp.LegalAddress != null ? comp.LegalAddress : comp.Address;
-                        if (compAddr != null)
-                        {
-                            List<string> parts = new List<string>();
-                            if (compAddr.Addr1 != null && !string.IsNullOrEmpty(compAddr.Addr1.GetValue())) parts.Add(compAddr.Addr1.GetValue());
-                            if (compAddr.Addr2 != null && !string.IsNullOrEmpty(compAddr.Addr2.GetValue())) parts.Add(compAddr.Addr2.GetValue());
-                            if (compAddr.Addr3 != null && !string.IsNullOrEmpty(compAddr.Addr3.GetValue())) parts.Add(compAddr.Addr3.GetValue());
-                            if (compAddr.City != null && !string.IsNullOrEmpty(compAddr.City.GetValue())) parts.Add(compAddr.City.GetValue());
-                            if (compAddr.State != null && !string.IsNullOrEmpty(compAddr.State.GetValue())) parts.Add(compAddr.State.GetValue());
-                            br.payor_address = string.Join(", ", parts.ToArray());
-                            if (compAddr.PostalCode != null && !string.IsNullOrEmpty(compAddr.PostalCode.GetValue()))
-                                br.payor_zip = compAddr.PostalCode.GetValue();
-                        }
+                        List<string> parts = new List<string>();
+                        string a1 = GetNodeText(compAddr, "Addr1");
+                        string a2 = GetNodeText(compAddr, "Addr2");
+                        string a3 = GetNodeText(compAddr, "Addr3");
+                        string city = GetNodeText(compAddr, "City");
+                        string state = GetNodeText(compAddr, "State");
+                        if (!string.IsNullOrEmpty(a1)) parts.Add(a1);
+                        if (!string.IsNullOrEmpty(a2)) parts.Add(a2);
+                        if (!string.IsNullOrEmpty(a3)) parts.Add(a3);
+                        if (!string.IsNullOrEmpty(city)) parts.Add(city);
+                        if (!string.IsNullOrEmpty(state)) parts.Add(state);
+                        br.payor_address = string.Join(", ", parts.ToArray());
+                        br.payor_zip = GetNodeText(compAddr, "PostalCode");
                     }
                 }
             }
             catch { }
         }
 
-        static void QueryVendorDetails(QBSessionManager sm, string listId, string fullName, BridgeResponse br)
+        static void QueryVendorDetails(QbXmlSession session, string listId, string fullName, BridgeResponse br)
         {
             try
             {
                 if (string.IsNullOrEmpty(listId) && string.IsNullOrEmpty(fullName)) return;
-                IMsgSetRequest req = sm.CreateMsgSetRequest("US", 13, 0);
-                req.Attributes.OnError = ENRqOnError.roeContinue;
-                IVendorQuery vq = req.AppendVendorQueryRq();
-                if (!string.IsNullOrEmpty(listId))
-                {
-                    vq.ORVendorListQuery.ListIDList.Add(listId);
-                }
-                else
-                {
-                    vq.ORVendorListQuery.FullNameList.Add(fullName);
-                }
+                string filter = !string.IsNullOrEmpty(listId)
+                    ? "<ListID>" + EscapeXml(listId) + "</ListID>"
+                    : "<FullName>" + EscapeXml(fullName) + "</FullName>";
 
-                IMsgSetResponse resp = sm.DoRequests(req);
-                if (resp.ResponseList != null && resp.ResponseList.Count > 0)
+                XmlDocument doc = session.ProcessRequest("<VendorQueryRq>" + filter + "</VendorQueryRq>");
+                XmlNode v = doc.SelectSingleNode("//VendorRet");
+                if (v != null)
                 {
-                    IResponse r = resp.ResponseList.GetAt(0);
-                    IVendorRetList list = r.Detail as IVendorRetList;
-                    if (list != null && list.Count > 0)
+                    string taxId = GetNodeText(v, "VendorTaxIdent");
+                    if (!string.IsNullOrEmpty(taxId)) br.tin = taxId;
+
+                    XmlNode vAddr = v.SelectSingleNode("VendorAddress");
+                    if (vAddr != null)
                     {
-                        IVendorRet v = list.GetAt(0);
-                        if (v.VendorTaxIdent != null && !string.IsNullOrEmpty(v.VendorTaxIdent.GetValue()))
+                        if (string.IsNullOrEmpty(br.payee_address))
                         {
-                            br.tin = v.VendorTaxIdent.GetValue();
+                            br.payee_address = ExtractAddress(vAddr);
                         }
-                        if (v.VendorAddress != null)
+                        string pCode = GetNodeText(vAddr, "PostalCode");
+                        if (string.IsNullOrEmpty(br.payee_zip) && !string.IsNullOrEmpty(pCode))
                         {
-                            if (string.IsNullOrEmpty(br.payee_address))
-                            {
-                                br.payee_address = ExtractAddress(v.VendorAddress);
-                            }
-                            if (string.IsNullOrEmpty(br.payee_zip) && v.VendorAddress.PostalCode != null && !string.IsNullOrEmpty(v.VendorAddress.PostalCode.GetValue()))
-                            {
-                                br.payee_zip = v.VendorAddress.PostalCode.GetValue();
-                            }
+                            br.payee_zip = pCode;
                         }
                     }
                 }
@@ -761,15 +779,20 @@ namespace QBBridge
             catch { }
         }
 
-        static string ExtractAddress(IAddress addr)
+        static string ExtractAddress(XmlNode addr)
         {
             if (addr == null) return "";
             List<string> parts = new List<string>();
-            if (addr.Addr2 != null && !string.IsNullOrEmpty(addr.Addr2.GetValue())) parts.Add(addr.Addr2.GetValue());
-            if (addr.Addr3 != null && !string.IsNullOrEmpty(addr.Addr3.GetValue())) parts.Add(addr.Addr3.GetValue());
-            if (addr.City != null && !string.IsNullOrEmpty(addr.City.GetValue())) parts.Add(addr.City.GetValue());
-            if (addr.State != null && !string.IsNullOrEmpty(addr.State.GetValue())) parts.Add(addr.State.GetValue());
-            if (addr.PostalCode != null && !string.IsNullOrEmpty(addr.PostalCode.GetValue())) parts.Add(addr.PostalCode.GetValue());
+            string a2 = GetNodeText(addr, "Addr2");
+            string a3 = GetNodeText(addr, "Addr3");
+            string city = GetNodeText(addr, "City");
+            string state = GetNodeText(addr, "State");
+            string postal = GetNodeText(addr, "PostalCode");
+            if (!string.IsNullOrEmpty(a2)) parts.Add(a2);
+            if (!string.IsNullOrEmpty(a3)) parts.Add(a3);
+            if (!string.IsNullOrEmpty(city)) parts.Add(city);
+            if (!string.IsNullOrEmpty(state)) parts.Add(state);
+            if (!string.IsNullOrEmpty(postal)) parts.Add(postal);
             return string.Join(", ", parts.ToArray());
         }
 

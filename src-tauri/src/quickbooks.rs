@@ -37,6 +37,22 @@ struct BridgeResponse {
 }
 
 fn find_qb_bridge_exe() -> Option<PathBuf> {
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let candidates = [
+                parent.join("bin").join("QBBridge.exe"),
+                parent.join("QBBridge.exe"),
+                parent.join("resources").join("bin").join("QBBridge.exe"),
+                parent.join("resources").join("QBBridge.exe"),
+            ];
+            for c in &candidates {
+                if c.exists() {
+                    return Some(c.clone());
+                }
+            }
+        }
+    }
+
     let manifest_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("bin")
         .join("QBBridge.exe");
@@ -52,19 +68,6 @@ fn find_qb_bridge_exe() -> Option<PathBuf> {
     for p in &relative_candidates {
         if p.exists() {
             return Some(p.clone());
-        }
-    }
-
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(parent) = exe_path.parent() {
-            let c1 = parent.join("bin").join("QBBridge.exe");
-            if c1.exists() {
-                return Some(c1);
-            }
-            let c2 = parent.join("QBBridge.exe");
-            if c2.exists() {
-                return Some(c2);
-            }
         }
     }
 

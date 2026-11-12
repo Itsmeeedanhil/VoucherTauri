@@ -27,7 +27,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["msi", "nsis"],
+    "publisher": "Tetsuro",
+    "copyright": "Copyright (c) 2026 VoucherPRO",
+    "shortDescription": "VoucherPRO Accounting Check Voucher System",
+    "windows": {
+      "nsis": {
+        "compression": "zlib",
+        "installMode": "currentUser"
+      }
+    },
+    "resources": [
+      "bin/QBBridge.exe"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
