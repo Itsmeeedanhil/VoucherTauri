@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import {
+  Building2,
   Eye,
   FileSpreadsheet,
   Layers,
@@ -65,6 +66,7 @@ export const VoucherCanvas: React.FC<Props> = ({
   onResetAllOffsets,
 }) => {
   const cfg = client.layout_config;
+  const [showCvCompanyHeader, setShowCvCompanyHeader] = useState<boolean>(true);
   const [showBirBackground, setShowBirBackground] = useState<boolean>(true);
   const [printBirBackground, setPrintBirBackground] = useState<boolean>(true);
 
@@ -102,21 +104,39 @@ export const VoucherCanvas: React.FC<Props> = ({
           </button>
 
           {activeForm === "CV" ? (
-            <button
-              type="button"
-              onClick={() => onToggleWireframeGuide(!showWireframeGuide)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
-                showWireframeGuide
-                  ? "bg-blue-600/20 text-blue-300 border-blue-500/50"
-                  : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
-              }`}
-              title="Show or hide non-printing form box lines while adjusting field positions"
-            >
-              <Layers className="w-3.5 h-3.5" />
-              {showWireframeGuide
-                ? "Hide Form Lines Guide"
-                : "Show Form Lines Guide"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => onToggleWireframeGuide(!showWireframeGuide)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+                  showWireframeGuide
+                    ? "bg-emerald-600/20 text-emerald-300 border-emerald-500/50"
+                    : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
+                }`}
+                title="Toggle printing the full Check Voucher form boxes & labels vs. data only"
+              >
+                <Layers className="w-3.5 h-3.5" />
+                {showWireframeGuide
+                  ? "Print Mode: Full Form + Data"
+                  : "Print Mode: Data Only"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowCvCompanyHeader(!showCvCompanyHeader)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition flex items-center gap-1.5 cursor-pointer ${
+                  showCvCompanyHeader
+                    ? "bg-blue-600/20 text-blue-300 border-blue-500/50"
+                    : "bg-slate-800/70 text-slate-400 border-slate-700 hover:text-slate-200"
+                }`}
+                title="Show or hide the selected Company Header (Name, TIN, Address) in the top-left of the Check Voucher"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                {showCvCompanyHeader
+                  ? "Company Header: Shown"
+                  : "Company Header: Hidden"}
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -276,6 +296,7 @@ export const VoucherCanvas: React.FC<Props> = ({
               client={client}
               payeeOverride={payeeOverride}
               showWireframeGuide={showWireframeGuide}
+              showCompanyHeader={showCvCompanyHeader}
               calibrationMode={calibrationMode}
               selectedField={selectedField}
               onSelectField={onSelectField}

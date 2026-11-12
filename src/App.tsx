@@ -59,10 +59,10 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
   id: "bradwell",
   code: "BRADWELL",
   name: "Bradwell Sales and Marketing Corp.",
-  address: "178-B5. E. Rodriguez Jr. Ave., Bagumbayan, Quezon City",
+  address: "#84-B Malakas St. Pinyahan Diliman, 1100 Quezon City NCR, Second District Philippines",
   contact_number: "(02) 8635-0000",
   website: "",
-  tin: "009-421-884-000",
+  tin: "010-261-476-00000",
   sub_companies: [
     "Bradwell Sales and Marketing Corp.",
     "Mapleway International Distributions Corp.",
@@ -79,10 +79,10 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
     header_font_size: 11,
     body_font_size: 10,
     table_font_size: 9,
-    show_company_header: false,
+    show_company_header: true,
     show_class_column: false,
     show_customer_job_column: false,
-    show_tin: false,
+    show_tin: true,
     signatory_columns: 4,
     check_x_offset_mm: 0,
     check_y_offset_mm: 0,
@@ -91,7 +91,7 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
     custom_title: "CHECK VOUCHER",
     preprinted_x_offset_mm: 0,
     preprinted_y_offset_mm: 0,
-    show_amount_in_words_receipt: false,
+    show_amount_in_words_receipt: true,
     show_distribution_totals: false,
     field_offsets: {},
   },
@@ -125,9 +125,9 @@ export function App() {
   const [payeeOverride, setPayeeOverride] = useState<string>("");
   const [isSignatoriesOpen, setIsSignatoriesOpen] = useState<boolean>(false);
 
-  // Interactive Field Movement / Calibration & Optional Wireframe Lines
+  // Interactive Field Movement / Calibration & Full Form Template
   const [calibrationMode, setCalibrationMode] = useState<boolean>(false);
-  const [showWireframeGuide, setShowWireframeGuide] = useState<boolean>(false);
+  const [showWireframeGuide, setShowWireframeGuide] = useState<boolean>(true);
   const [selectedField, setSelectedField] =
     useState<BradwellFieldKey | null>(null);
 

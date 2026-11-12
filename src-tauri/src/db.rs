@@ -89,10 +89,10 @@ impl DbState {
                 id: "bradwell".to_string(),
                 code: "BRADWELL".to_string(),
                 name: "Bradwell Sales and Marketing Corp.".to_string(),
-                address: "178-B5. E. Rodriguez Jr. Ave., Bagumbayan, Quezon City".to_string(),
+                address: "#84-B Malakas St. Pinyahan Diliman, 1100 Quezon City NCR, Second District Philippines".to_string(),
                 contact_number: "(02) 8635-0000".to_string(),
                 website: "".to_string(),
-                tin: "009-421-884-000".to_string(),
+                tin: "010-261-476-00000".to_string(),
                 sub_companies: vec![
                     "Bradwell Sales and Marketing Corp.".to_string(),
                     "Mapleway International Distributions Corp.".to_string(),

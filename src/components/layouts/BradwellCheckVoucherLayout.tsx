@@ -11,6 +11,7 @@ interface Props {
   client: ClientProfile;
   payeeOverride: string;
   showWireframeGuide: boolean;
+  showCompanyHeader?: boolean;
   calibrationMode: boolean;
   selectedField: BradwellFieldKey | null;
   onSelectField: (field: BradwellFieldKey | null) => void;
@@ -29,10 +30,6 @@ export interface BradwellFieldAnchor {
   fontWeight?: "normal" | "bold";
 }
 
-/**
- * Exact data-only anchor coordinates (in inches on an 8.5" x 11.0" Letter page)
- * aligned to the pre-printed Bradwell Check Voucher Template.
- */
 export type CvFieldKey = Exclude<
   BradwellFieldKey,
   | "bir2307_from_date"
@@ -52,31 +49,74 @@ export type CvFieldKey = Exclude<
   | "bir2307_payee_signatory"
 >;
 
+/**
+ * Official company header details from the client's registration / invoice forms
+ */
+export const COMPANY_HEADER_DETAILS: Record<
+  string,
+  { title: string; tinLine: string; addressLine1: string; addressLine2?: string }
+> = {
+  "Bradwell Sales and Marketing Corp.": {
+    title: "BRADWELL SALES AND MARKETING CORP.",
+    tinLine: "VAT Reg. TIN: 010-261-476-00000",
+    addressLine1: "#84-B Malakas St. Pinyahan Diliman",
+    addressLine2: "1100 Quezon City NCR, Second District Philippines",
+  },
+  "Mapleway International Distributions Corp.": {
+    title: "MAPLEWAY INTERNATIONAL DISTRIBUTIONS CORP.",
+    tinLine: "VAT Registered TIN: 010-284-984-00000",
+    addressLine1:
+      "Room 14 Philexcel Business Center 2, Philexcel Business Park, M.A. Roxas Highway,",
+    addressLine2:
+      "Clark Freeport Zone, 2023 Clark, Pampanga, Philippines * Phone# (632) 5000878",
+  },
+  "StoneBridge Materials Corp.": {
+    title: "STONEBRIDGE MATERIALS CORP.",
+    tinLine: "VAT Registered TIN: 686-324-627-00000",
+    addressLine1:
+      "Room 6, Philexcel Business Arcade 3, Philexcel Business Park, M.A. Roxas Highway,",
+    addressLine2: "Clark Freeport Zone, 2023 Clark, Pampanga, Philippines",
+  },
+};
+
+/**
+ * Anchor coordinates (in inches on an 8.5" x 11.0" Letter page)
+ * aligned to the full Bradwell Check Voucher form template.
+ */
 export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
+  company_header: {
+    key: "company_header",
+    label: "Company Header (Name / TIN / Address)",
+    xIn: 0.35,
+    yIn: 0.45,
+    widthIn: 4.9,
+    defaultFontPt: 11.5,
+    fontWeight: "bold",
+  },
   payee_name: {
     key: "payee_name",
     label: "Payee Name (PAYEE:)",
-    xIn: 0.88,
+    xIn: 0.9,
     yIn: 1.18,
-    widthIn: 4.38,
+    widthIn: 4.36,
     defaultFontPt: 10,
     fontWeight: "bold",
   },
   payee_address: {
     key: "payee_address",
     label: "Payee Address (ADDRESS)",
-    xIn: 0.96,
+    xIn: 1.0,
     yIn: 1.38,
-    widthIn: 4.30,
+    widthIn: 4.26,
     defaultFontPt: 8.5,
     fontWeight: "normal",
   },
   cv_number: {
     key: "cv_number",
     label: "CV Series Number (CV NUMBER :)",
-    xIn: 6.42,
-    yIn: 1.17,
-    widthIn: 1.50,
+    xIn: 6.32,
+    yIn: 1.16,
+    widthIn: 1.62,
     defaultFontPt: 11,
     align: "center",
     fontWeight: "bold",
@@ -84,7 +124,7 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   date: {
     key: "date",
     label: "Voucher Date (DATE:)",
-    xIn: 5.96,
+    xIn: 5.92,
     yIn: 1.46,
     widthIn: 1.95,
     defaultFontPt: 10,
@@ -103,9 +143,9 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   top_amount: {
     key: "top_amount",
     label: "Particulars Amount (AMOUNT)",
-    xIn: 6.30,
+    xIn: 6.25,
     yIn: 2.02,
-    widthIn: 1.58,
+    widthIn: 1.62,
     defaultFontPt: 10.5,
     align: "right",
     fontWeight: "bold",
@@ -114,18 +154,18 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
     key: "distribution_table",
     label: "Distribution of Accounts Table",
     xIn: 0.42,
-    yIn: 3.62,
-    widthIn: 7.48,
-    heightIn: 5.10,
+    yIn: 3.63,
+    widthIn: 7.49,
+    heightIn: 5.1,
     defaultFontPt: 9.5,
     fontWeight: "normal",
   },
   prepared_by: {
     key: "prepared_by",
     label: "Prepared By Signatory",
-    xIn: 0.36,
+    xIn: 0.38,
     yIn: 9.01,
-    widthIn: 1.97,
+    widthIn: 1.92,
     defaultFontPt: 9.5,
     align: "center",
     fontWeight: "bold",
@@ -133,9 +173,9 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   checked_by: {
     key: "checked_by",
     label: "Checked By Signatory",
-    xIn: 2.35,
+    xIn: 2.37,
     yIn: 9.01,
-    widthIn: 1.66,
+    widthIn: 1.62,
     defaultFontPt: 9.5,
     align: "center",
     fontWeight: "bold",
@@ -143,9 +183,9 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   approved_by: {
     key: "approved_by",
     label: "Approved By Signatory",
-    xIn: 4.02,
+    xIn: 4.05,
     yIn: 9.01,
-    widthIn: 2.00,
+    widthIn: 1.95,
     defaultFontPt: 9.5,
     align: "center",
     fontWeight: "bold",
@@ -153,9 +193,9 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   audited_by: {
     key: "audited_by",
     label: "Audited By Signatory",
-    xIn: 6.04,
+    xIn: 6.06,
     yIn: 9.01,
-    widthIn: 1.93,
+    widthIn: 1.88,
     defaultFontPt: 9.5,
     align: "center",
     fontWeight: "bold",
@@ -163,8 +203,8 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   amount_in_words: {
     key: "amount_in_words",
     label: "Received the Amount (Words)",
-    xIn: 0.43,
-    yIn: 9.42,
+    xIn: 0.42,
+    yIn: 9.43,
     widthIn: 5.05,
     defaultFontPt: 8.5,
     fontWeight: "normal",
@@ -172,18 +212,18 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   php_amount: {
     key: "php_amount",
     label: "Receipt PHP Amount (PHP)",
-    xIn: 0.80,
-    yIn: 9.73,
-    widthIn: 1.50,
+    xIn: 0.8,
+    yIn: 9.72,
+    widthIn: 1.48,
     defaultFontPt: 10,
     fontWeight: "bold",
   },
   received_by: {
     key: "received_by",
     label: "Received By Name",
-    xIn: 3.00,
-    yIn: 9.73,
-    widthIn: 1.25,
+    xIn: 3.11,
+    yIn: 9.71,
+    widthIn: 1.15,
     defaultFontPt: 9,
     align: "center",
     fontWeight: "bold",
@@ -191,9 +231,9 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   received_date: {
     key: "received_date",
     label: "Received Date",
-    xIn: 4.60,
-    yIn: 9.73,
-    widthIn: 0.90,
+    xIn: 4.65,
+    yIn: 9.71,
+    widthIn: 0.86,
     defaultFontPt: 8.5,
     align: "center",
     fontWeight: "normal",
@@ -201,27 +241,27 @@ export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
   bank_name: {
     key: "bank_name",
     label: "Bank Name (Bank :)",
-    xIn: 6.15,
+    xIn: 6.18,
     yIn: 9.29,
-    widthIn: 1.78,
+    widthIn: 1.75,
     defaultFontPt: 9,
     fontWeight: "bold",
   },
   check_no: {
     key: "check_no",
     label: "Check Number (Check No. :)",
-    xIn: 6.40,
-    yIn: 9.46,
-    widthIn: 1.53,
+    xIn: 6.45,
+    yIn: 9.47,
+    widthIn: 1.48,
     defaultFontPt: 9.5,
     fontWeight: "bold",
   },
   check_date: {
     key: "check_date",
     label: "Check Date (Check Date :)",
-    xIn: 6.54,
-    yIn: 9.64,
-    widthIn: 1.39,
+    xIn: 6.52,
+    yIn: 9.65,
+    widthIn: 1.41,
     defaultFontPt: 9,
     fontWeight: "bold",
   },
@@ -240,6 +280,7 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
   client,
   payeeOverride,
   showWireframeGuide,
+  showCompanyHeader = true,
   calibrationMode,
   selectedField,
   onSelectField,
@@ -263,7 +304,7 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
     return fieldOffsets[key] ?? { x_mm: 0, y_mm: 0, font_size_pt: null };
   };
 
-  const getFieldStyle = (key: BradwellFieldKey): React.CSSProperties => {
+  const getFieldStyle = (key: CvFieldKey): React.CSSProperties => {
     const anchor = BRADWELL_FIELD_ANCHORS[key];
     const fOff = getFieldOffset(key);
     const totalXmm = globalXmm + (fOff.x_mm || 0);
@@ -334,6 +375,13 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
     }`;
   };
 
+  const activeCompanyName = data.company_name || client.name;
+  const companyDetails = COMPANY_HEADER_DETAILS[activeCompanyName] ?? {
+    title: activeCompanyName.toUpperCase(),
+    tinLine: client.tin ? `VAT Reg. TIN: ${client.tin}` : "",
+    addressLine1: client.address || "",
+  };
+
   const displayPayee = payeeOverride || data.payee_name;
   const displayAddress = data.payee_address;
   const displayParticulars = data.memo;
@@ -367,37 +415,50 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
         if (calibrationMode) onSelectField(null);
       }}
     >
-      {/* Optional Non-Printing Wireframe Guide while moving/calibrating fields */}
+      {/* Full Check Voucher Form Structure (Rendered & Printed on Plain Bond Paper) */}
       {showWireframeGuide && (
         <div
-          className="no-print pointer-events-none select-none"
+          className="pointer-events-none select-none"
           style={{
             position: "absolute",
             inset: 0,
             width: "8.5in",
             height: "11in",
-            opacity: 0.45,
             zIndex: 1,
             fontFamily: "Arial, Helvetica, sans-serif",
-            color: "#64748b",
+            color: "#000000",
           }}
         >
+          {/* Vertical Divider Line Extending Above the Outer Box (left of CHECK VOUCHER) */}
           <div
             style={{
               position: "absolute",
-              left: "5.33in",
-              top: "0.60in",
-              width: "2.65in",
-              textAlign: "right",
-              fontSize: "20pt",
-              fontWeight: 900,
-              letterSpacing: "0.04em",
-              color: "#64748b",
+              left: "5.335in",
+              top: "0.46in",
+              height: "0.64in",
+              borderLeft: "1.5px solid #000000",
+            }}
+          />
+
+          {/* CHECK VOUCHER Title (Top-Right above CV NUMBER box) */}
+          <div
+            style={{
+              position: "absolute",
+              left: "5.335in",
+              top: "0.70in",
+              width: "2.645in",
+              textAlign: "center",
+              fontSize: "18.5pt",
+              fontWeight: 800,
+              letterSpacing: "0.02em",
+              color: "#000000",
+              lineHeight: 1,
             }}
           >
             CHECK VOUCHER
           </div>
 
+          {/* Outer Main Voucher Border Box */}
           <div
             style={{
               position: "absolute",
@@ -405,10 +466,11 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
               top: "1.10in",
               width: "7.63in",
               height: "8.905in",
-              border: "1.5px solid #94a3b8",
+              border: "1.5px solid #000000",
             }}
           />
 
+          {/* Row 1: PAYEE / ADDRESS & CV NUMBER / DATE Box */}
           <div
             style={{
               position: "absolute",
@@ -416,7 +478,7 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
               top: "1.10in",
               width: "7.63in",
               height: "0.66in",
-              borderBottom: "1.5px solid #94a3b8",
+              borderBottom: "1.5px solid #000000",
             }}
           >
             <div
@@ -425,23 +487,66 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
                 left: "4.985in",
                 top: 0,
                 bottom: 0,
-                borderLeft: "1.5px solid #94a3b8",
+                borderLeft: "1.5px solid #000000",
               }}
             />
-            <span style={{ position: "absolute", left: "0.06in", top: "0.10in", fontSize: "8.5pt", fontWeight: 700 }}>
+            <span
+              style={{
+                position: "absolute",
+                left: "0.06in",
+                top: "0.09in",
+                fontSize: "8.5pt",
+                fontWeight: 700,
+              }}
+            >
               PAYEE:
             </span>
-            <span style={{ position: "absolute", left: "0.06in", top: "0.30in", fontSize: "8.5pt", fontWeight: 700 }}>
+            <span
+              style={{
+                position: "absolute",
+                left: "0.06in",
+                top: "0.29in",
+                fontSize: "8.5pt",
+                fontWeight: 700,
+              }}
+            >
               ADDRESS
             </span>
-            <span style={{ position: "absolute", left: "5.09in", top: "0.10in", fontSize: "8.5pt", fontWeight: 700 }}>
-              CV NUMBER : ________________
+            <span
+              style={{
+                position: "absolute",
+                left: "5.06in",
+                top: "0.09in",
+                fontSize: "9pt",
+                fontWeight: 700,
+              }}
+            >
+              CV NUMBER :
             </span>
-            <span style={{ position: "absolute", left: "5.14in", top: "0.38in", fontSize: "8.5pt", fontWeight: 700 }}>
+            {/* Solid Underline after CV NUMBER : extending to the right border */}
+            <div
+              style={{
+                position: "absolute",
+                left: "5.95in",
+                right: 0,
+                top: "0.25in",
+                borderBottom: "1.2px solid #000000",
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: "5.10in",
+                top: "0.38in",
+                fontSize: "9pt",
+                fontWeight: 700,
+              }}
+            >
               DATE:
             </span>
           </div>
 
+          {/* Row 2: PARTICULARS & AMOUNT Box */}
           <div
             style={{
               position: "absolute",
@@ -449,52 +554,76 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
               top: "1.76in",
               width: "7.63in",
               height: "1.515in",
-              borderBottom: "1.5px solid #94a3b8",
+              borderBottom: "1.5px solid #000000",
             }}
           >
-            <span style={{ position: "absolute", left: "2.35in", top: "0.05in", fontSize: "9pt", fontWeight: 700 }}>
+            <span
+              style={{
+                position: "absolute",
+                left: "2.15in",
+                top: "0.05in",
+                fontSize: "9pt",
+                fontWeight: 700,
+              }}
+            >
               PARTICULARS
             </span>
-            <span style={{ position: "absolute", right: "0.45in", top: "0.05in", fontSize: "9pt", fontWeight: 700 }}>
+            <span
+              style={{
+                position: "absolute",
+                right: "0.90in",
+                top: "0.05in",
+                fontSize: "9pt",
+                fontWeight: 700,
+              }}
+            >
               AMOUNT
             </span>
           </div>
 
+          {/* Row 3A: DISTRIBUTION OF ACCOUNTS Title Band */}
           <div
             style={{
               position: "absolute",
               left: "0.35in",
               top: "3.275in",
               width: "7.63in",
-              height: "0.155in",
-              borderBottom: "1px solid #94a3b8",
+              height: "0.16in",
+              borderBottom: "1.2px solid #000000",
               textAlign: "center",
               fontSize: "8.5pt",
               fontWeight: 700,
-              lineHeight: "0.155in",
+              lineHeight: "0.16in",
             }}
           >
             DISTRIBUTION OF ACCOUNTS
           </div>
+
+          {/* Row 3B: Account Code | Account Title | Debit | Credit Column Header Band */}
           <div
             style={{
               position: "absolute",
               left: "0.35in",
-              top: "3.43in",
+              top: "3.435in",
               width: "7.63in",
-              height: "0.13in",
-              borderBottom: "1.5px solid #94a3b8",
+              height: "0.15in",
+              borderBottom: "1.5px solid #000000",
               fontSize: "8pt",
               fontWeight: 700,
-              lineHeight: "0.13in",
+              lineHeight: "0.15in",
             }}
           >
-            <span style={{ position: "absolute", left: "0.45in" }}>Account Code</span>
-            <span style={{ position: "absolute", left: "2.55in" }}>Account Title</span>
-            <span style={{ position: "absolute", left: "5.80in" }}>Debit</span>
-            <span style={{ position: "absolute", left: "7.00in" }}>Credit</span>
+            <span style={{ position: "absolute", left: "0.48in" }}>
+              Account Code
+            </span>
+            <span style={{ position: "absolute", left: "2.60in" }}>
+              Account Title
+            </span>
+            <span style={{ position: "absolute", left: "5.55in" }}>Debit</span>
+            <span style={{ position: "absolute", left: "6.95in" }}>Credit</span>
           </div>
 
+          {/* Row 4: Signatories Box (Prepared By | Checked By | Approved By | Audited By) */}
           <div
             style={{
               position: "absolute",
@@ -502,21 +631,62 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
               top: "8.835in",
               width: "7.63in",
               height: "0.385in",
-              borderTop: "1.5px solid #94a3b8",
-              borderBottom: "1.5px solid #94a3b8",
+              borderTop: "1.5px solid #000000",
+              borderBottom: "1.5px solid #000000",
               fontSize: "8pt",
               fontWeight: 700,
             }}
           >
-            <div style={{ position: "absolute", left: "1.99in", top: 0, bottom: 0, borderLeft: "1.5px solid #94a3b8" }} />
-            <div style={{ position: "absolute", left: "3.67in", top: 0, bottom: 0, borderLeft: "1.5px solid #94a3b8" }} />
-            <div style={{ position: "absolute", left: "5.68in", top: 0, bottom: 0, borderLeft: "1.5px solid #94a3b8" }} />
-            <span style={{ position: "absolute", left: "0.06in", top: "0.02in" }}>Prepared By:</span>
-            <span style={{ position: "absolute", left: "2.05in", top: "0.02in" }}>Checked By:</span>
-            <span style={{ position: "absolute", left: "3.73in", top: "0.02in" }}>Approved By:</span>
-            <span style={{ position: "absolute", left: "5.74in", top: "0.02in" }}>Audited By:</span>
+            <div
+              style={{
+                position: "absolute",
+                left: "1.99in",
+                top: 0,
+                bottom: 0,
+                borderLeft: "1.5px solid #000000",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: "3.67in",
+                top: 0,
+                bottom: 0,
+                borderLeft: "1.5px solid #000000",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                left: "5.68in",
+                top: 0,
+                bottom: 0,
+                borderLeft: "1.5px solid #000000",
+              }}
+            />
+            <span
+              style={{ position: "absolute", left: "0.05in", top: "0.02in" }}
+            >
+              Prepared By:
+            </span>
+            <span
+              style={{ position: "absolute", left: "2.04in", top: "0.02in" }}
+            >
+              Checked By:
+            </span>
+            <span
+              style={{ position: "absolute", left: "3.72in", top: "0.02in" }}
+            >
+              Approved By:
+            </span>
+            <span
+              style={{ position: "absolute", left: "5.73in", top: "0.02in" }}
+            >
+              Audited By:
+            </span>
           </div>
 
+          {/* Row 5: Bottom Receipt & Bank Details Box */}
           <div
             style={{
               position: "absolute",
@@ -528,15 +698,150 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
               fontWeight: 700,
             }}
           >
-            <div style={{ position: "absolute", left: "5.215in", top: 0, bottom: 0, borderLeft: "1.5px solid #94a3b8" }} />
-            <span style={{ position: "absolute", left: "0.06in", top: "0.04in" }}>Received the Amount</span>
-            <span style={{ position: "absolute", left: "0.06in", top: "0.52in", fontSize: "9pt" }}>PHP</span>
-            <span style={{ position: "absolute", left: "2.02in", top: "0.54in" }}>Received By: ______________</span>
-            <span style={{ position: "absolute", left: "3.98in", top: "0.54in" }}>Date: ___________</span>
-            <span style={{ position: "absolute", left: "5.38in", top: "0.08in" }}>Bank :</span>
-            <span style={{ position: "absolute", left: "5.38in", top: "0.26in" }}>Check No. :</span>
-            <span style={{ position: "absolute", left: "5.38in", top: "0.44in" }}>Check Date :</span>
+            <div
+              style={{
+                position: "absolute",
+                left: "5.215in",
+                top: 0,
+                bottom: 0,
+                borderLeft: "1.5px solid #000000",
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: "0.05in",
+                top: "0.04in",
+                fontSize: "8.5pt",
+              }}
+            >
+              Received the Amount
+            </span>
+            <span
+              style={{
+                position: "absolute",
+                left: "0.05in",
+                top: "0.50in",
+                fontSize: "9.5pt",
+              }}
+            >
+              PHP
+            </span>
+            <span
+              style={{ position: "absolute", left: "2.02in", top: "0.53in" }}
+            >
+              Received By:
+            </span>
+            {/* Solid Underline for Received By */}
+            <div
+              style={{
+                position: "absolute",
+                left: "2.76in",
+                width: "1.16in",
+                top: "0.66in",
+                borderBottom: "1.2px solid #000000",
+              }}
+            />
+            <span
+              style={{ position: "absolute", left: "3.98in", top: "0.53in" }}
+            >
+              Date:
+            </span>
+            {/* Solid Underline for Date */}
+            <div
+              style={{
+                position: "absolute",
+                left: "4.30in",
+                width: "0.86in",
+                top: "0.66in",
+                borderBottom: "1.2px solid #000000",
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: "5.36in",
+                top: "0.08in",
+                fontSize: "8.5pt",
+              }}
+            >
+              Bank :
+            </span>
+            <span
+              style={{
+                position: "absolute",
+                left: "5.36in",
+                top: "0.26in",
+                fontSize: "8.5pt",
+              }}
+            >
+              Check No. :
+            </span>
+            <span
+              style={{
+                position: "absolute",
+                left: "5.36in",
+                top: "0.44in",
+                fontSize: "8.5pt",
+              }}
+            >
+              Check Date :
+            </span>
           </div>
+        </div>
+      )}
+
+      {/* COMPANY HEADER (Selected Company Name, TIN, Address in Top-Left) */}
+      {showCompanyHeader && (
+        <div
+          className={fieldCalibrationClass("company_header")}
+          style={getFieldStyle("company_header")}
+          onMouseDown={(e) => handleMouseDownField(e, "company_header")}
+          title="Drag to adjust Company Header position"
+        >
+          <div
+            style={{
+              fontWeight: 800,
+              letterSpacing: "0.01em",
+              lineHeight: 1.15,
+            }}
+          >
+            {companyDetails.title}
+          </div>
+          {companyDetails.tinLine && (
+            <div
+              style={{
+                fontSize: "7.5pt",
+                fontWeight: 600,
+                lineHeight: 1.2,
+                marginTop: "1px",
+              }}
+            >
+              {companyDetails.tinLine}
+            </div>
+          )}
+          {companyDetails.addressLine1 && (
+            <div
+              style={{
+                fontSize: "7.5pt",
+                fontWeight: 400,
+                lineHeight: 1.15,
+              }}
+            >
+              {companyDetails.addressLine1}
+            </div>
+          )}
+          {companyDetails.addressLine2 && (
+            <div
+              style={{
+                fontSize: "7.5pt",
+                fontWeight: 400,
+                lineHeight: 1.15,
+              }}
+            >
+              {companyDetails.addressLine2}
+            </div>
+          )}
         </div>
       )}
 
@@ -699,7 +1004,16 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
         <div className="truncate">{auditedBy}</div>
       </div>
 
-      {/* BOTTOM LEFT: PHP AMOUNT & RECEIVED BY */}
+      {/* BOTTOM LEFT: AMOUNT IN WORDS, PHP AMOUNT & RECEIVED BY */}
+      <div
+        className={fieldCalibrationClass("amount_in_words")}
+        style={getFieldStyle("amount_in_words")}
+        onMouseDown={(e) => handleMouseDownField(e, "amount_in_words")}
+        title="Drag to adjust Amount in Words position"
+      >
+        <div className="line-clamp-2 leading-tight">{data.amount_in_words}</div>
+      </div>
+
       <div
         className={fieldCalibrationClass("php_amount")}
         style={getFieldStyle("php_amount")}
