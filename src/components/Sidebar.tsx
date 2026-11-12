@@ -7,8 +7,8 @@ import {
   UserPen,
   Building2,
   Layers,
-  FileText,
   FileSpreadsheet,
+  Lock,
 } from "lucide-react";
 import { ClientProfile, FormType, SeriesConfig } from "../types/voucher";
 
@@ -95,15 +95,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => onSelectForm("BIR2307")}
-            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition cursor-pointer ${
-              activeForm === "BIR2307"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-600/20"
-                : "text-slate-400 hover:text-white hover:bg-slate-800"
-            }`}
+            disabled
+            aria-disabled="true"
+            title="BIR Form 2307 module is currently locked pending client approval"
+            className="flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold bg-slate-900/60 text-slate-500 border border-slate-800/80 opacity-60 cursor-not-allowed"
           >
-            <FileText className="w-3.5 h-3.5" />
-            BIR Form 2307
+            <Lock className="w-3 h-3 text-amber-500/80 shrink-0" />
+            <span className="truncate">BIR Form 2307</span>
           </button>
         </div>
 

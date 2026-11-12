@@ -471,6 +471,7 @@ export function App() {
       <Sidebar
         activeForm={activeForm}
         onSelectForm={(f) => {
+          if (f === "BIR2307") return; // Locked until client approval
           setActiveForm(f);
           setSelectedField(null);
         }}
