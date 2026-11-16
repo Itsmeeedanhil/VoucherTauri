@@ -217,14 +217,25 @@ export function App() {
   }, [selectedClient, selectedCompany]);
 
   const handleSelectClient = (client: ClientProfile) => {
+    const nextComp = client.sub_companies[0] || client.name;
     isLoadedFromHistoryRef.current = false;
     setSelectedClient(client);
-    setSelectedCompany(client.sub_companies[0] || client.name);
+    setSelectedCompany(nextComp);
+    setVoucherData(null);
+    setRefNumber("");
+    setPayeeOverride("");
+    setErrorMsg(null);
+    setBir2307Data(createDefaultBir2307(nextComp, client));
   };
 
   const handleSelectCompany = (company: string) => {
     isLoadedFromHistoryRef.current = false;
     setSelectedCompany(company);
+    setVoucherData(null);
+    setRefNumber("");
+    setPayeeOverride("");
+    setErrorMsg(null);
+    setBir2307Data(createDefaultBir2307(company, selectedClient));
   };
 
   const fetchVoucher = useCallback(async () => {
