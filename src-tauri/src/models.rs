@@ -171,6 +171,19 @@ pub struct VoucherData {
     pub signatories: SignatoriesConfig,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoucherHistoryEntry {
+    pub id: i64,
+    pub printed_at: String,
+    pub company_name: String,
+    pub cv_number: String,
+    pub ref_number: String,
+    pub payee_name: String,
+    pub voucher_date: String,
+    pub total_amount: f64,
+    pub voucher_data: VoucherData,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Form2307Row {
     pub description: String,

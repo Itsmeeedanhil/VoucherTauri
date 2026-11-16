@@ -1,5 +1,9 @@
-use crate::models::{ClientProfile, Form2307Data, LayoutConfig, SeriesConfig, SignatoriesConfig};
+use crate::models::{
+    ClientProfile, Form2307Data, LayoutConfig, SeriesConfig, SignatoriesConfig, VoucherData,
+    VoucherHistoryEntry,
+};
 use anyhow::Result;
+use chrono::Local;
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -80,6 +84,21 @@ impl DbState {
             [],
         )?;
 
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS voucher_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                printed_at TEXT NOT NULL,
+                company_name TEXT NOT NULL,
+                cv_number TEXT NOT NULL,
+                ref_number TEXT NOT NULL,
+                payee_name TEXT NOT NULL,
+                voucher_date TEXT NOT NULL,
+                total_amount REAL NOT NULL DEFAULT 0,
+                voucher_json TEXT NOT NULL
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -128,6 +147,14 @@ impl DbState {
                         "INSERT OR IGNORE INTO series_config (client_code, form_type, current_number, prefix, digit_count)
                          VALUES (?1, ?2, 1, '', 5)",
                         params![client.code, form],
+                    )?;
+                }
+
+                for company in &client.sub_companies {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO series_config (client_code, form_type, current_number, prefix, digit_count)
+                         VALUES (?1, 'CV', 1, '', 5)",
+                        params![company],
                     )?;
                 }
 
@@ -383,6 +410,141 @@ impl DbState {
             "INSERT OR REPLACE INTO form2307_records (company_name, json_data) VALUES (?1, ?2)",
             params![data.company_name, json],
         )?;
+        Ok(())
+    }
+
+    pub fn save_voucher_history(
+        &self,
+        company_name: &str,
+        cv_number: &str,
+        ref_number: &str,
+        payee_name: &str,
+        voucher_date: &str,
+        total_amount: f64,
+        voucher_data: &VoucherData,
+    ) -> Result<VoucherHistoryEntry> {
+        let conn = self.conn.lock().unwrap();
+        let printed_at = Local::now().format("%Y-%m-%d %I:%M:%S %p").to_string();
+        let json = serde_json::to_string(voucher_data)?;
+
+        conn.execute(
+            "INSERT INTO voucher_history (
+                printed_at, company_name, cv_number, ref_number, payee_name, voucher_date, total_amount, voucher_json
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                printed_at,
+                company_name,
+                cv_number,
+                ref_number,
+                payee_name,
+                voucher_date,
+                total_amount,
+                json
+            ],
+        )?;
+
+        let id = conn.last_insert_rowid();
+        Ok(VoucherHistoryEntry {
+            id,
+            printed_at,
+            company_name: company_name.to_string(),
+            cv_number: cv_number.to_string(),
+            ref_number: ref_number.to_string(),
+            payee_name: payee_name.to_string(),
+            voucher_date: voucher_date.to_string(),
+            total_amount,
+            voucher_data: voucher_data.clone(),
+        })
+    }
+
+    pub fn get_voucher_history(
+        &self,
+        company_name: Option<&str>,
+    ) -> Result<Vec<VoucherHistoryEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let mut entries = Vec::new();
+
+        if let Some(comp) = company_name.filter(|s| !s.trim().is_empty()) {
+            let mut stmt = conn.prepare(
+                "SELECT id, printed_at, company_name, cv_number, ref_number, payee_name, voucher_date, total_amount, voucher_json
+                 FROM voucher_history
+                 WHERE company_name = ?1
+                 ORDER BY id DESC
+                 LIMIT 500",
+            )?;
+            let rows = stmt.query_map(params![comp], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, f64>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?;
+            for r in rows {
+                let (id, printed_at, comp_name, cv_num, ref_num, payee, v_date, amt, v_json) = r?;
+                if let Ok(voucher_data) = serde_json::from_str::<VoucherData>(&v_json) {
+                    entries.push(VoucherHistoryEntry {
+                        id,
+                        printed_at,
+                        company_name: comp_name,
+                        cv_number: cv_num,
+                        ref_number: ref_num,
+                        payee_name: payee,
+                        voucher_date: v_date,
+                        total_amount: amt,
+                        voucher_data,
+                    });
+                }
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id, printed_at, company_name, cv_number, ref_number, payee_name, voucher_date, total_amount, voucher_json
+                 FROM voucher_history
+                 ORDER BY id DESC
+                 LIMIT 500",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, f64>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })?;
+            for r in rows {
+                let (id, printed_at, comp_name, cv_num, ref_num, payee, v_date, amt, v_json) = r?;
+                if let Ok(voucher_data) = serde_json::from_str::<VoucherData>(&v_json) {
+                    entries.push(VoucherHistoryEntry {
+                        id,
+                        printed_at,
+                        company_name: comp_name,
+                        cv_number: cv_num,
+                        ref_number: ref_num,
+                        payee_name: payee,
+                        voucher_date: v_date,
+                        total_amount: amt,
+                        voucher_data,
+                    });
+                }
+            }
+        }
+
+        Ok(entries)
+    }
+
+    pub fn delete_voucher_history(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM voucher_history WHERE id = ?1", params![id])?;
         Ok(())
     }
 }

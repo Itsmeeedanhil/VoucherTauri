@@ -157,6 +157,18 @@ export interface VoucherData {
   signatories: SignatoriesConfig;
 }
 
+export interface VoucherHistoryEntry {
+  id: number;
+  printed_at: string;
+  company_name: string;
+  cv_number: string;
+  ref_number: string;
+  payee_name: string;
+  voucher_date: string;
+  total_amount: number;
+  voucher_data: VoucherData;
+}
+
 export type FormType = "CV" | "Check" | "BIR2307";
 
 export const FORM_LABELS: Record<FormType, string> = {

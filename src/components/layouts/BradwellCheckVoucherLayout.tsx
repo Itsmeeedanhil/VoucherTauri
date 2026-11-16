@@ -869,14 +869,14 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
         <div className="line-clamp-2 leading-tight">{displayAddress}</div>
       </div>
 
-      {/* CV NUMBER (Uses Reference Number) */}
+      {/* CV SERIES NUMBER (Per-Company Series Number) */}
       <div
         className={fieldCalibrationClass("cv_number")}
         style={getFieldStyle("cv_number")}
         onMouseDown={(e) => handleMouseDownField(e, "cv_number")}
         title="Drag to adjust CV Number position"
       >
-        {data.ref_number}
+        {data.series_number}
       </div>
 
       {/* VOUCHER DATE */}

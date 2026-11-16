@@ -1,16 +1,18 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   Search,
   Printer,
   Users,
+  Hash,
   UserPen,
   Building2,
   Layers,
   FileSpreadsheet,
   CreditCard,
+  History,
   Lock,
 } from "lucide-react";
-import { ClientProfile, FormType } from "../types/voucher";
+import { ClientProfile, FormType, SeriesConfig } from "../types/voucher";
 
 interface SidebarProps {
   activeForm: FormType;
@@ -24,9 +26,13 @@ interface SidebarProps {
   onRefNumberChange: (val: string) => void;
   onSearchVoucher: () => void;
   isLoading: boolean;
+  seriesConfig: SeriesConfig | null;
+  onUpdateSeries: (newNum: number, newPrefix: string) => void;
   payeeOverride: string;
   onPayeeOverrideChange: (val: string) => void;
   onOpenSignatoriesModal: () => void;
+  historyCount: number;
+  onOpenHistoryModal: () => void;
   onPrint: () => void;
 }
 
@@ -42,11 +48,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRefNumberChange,
   onSearchVoucher,
   isLoading,
+  seriesConfig,
+  onUpdateSeries,
   payeeOverride,
   onPayeeOverrideChange,
   onOpenSignatoriesModal,
+  historyCount,
+  onOpenHistoryModal,
   onPrint,
 }) => {
+  const [seriesInput, setSeriesInput] = useState<string>("");
+
+  useEffect(() => {
+    if (seriesConfig) {
+      setSeriesInput(seriesConfig.current_number.toString());
+    }
+  }, [seriesConfig]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.nativeEvent.isComposing) {
       onSearchVoucher();
@@ -66,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Essential Controls */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 scroller">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3.5 scroller">
         {/* 0. FORM MODULE SWITCHER */}
         <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-2 space-y-1.5">
           <div className="grid grid-cols-2 gap-1.5">
@@ -162,7 +180,83 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </select>
         </div>
 
-        {/* 2. PAYEE OVERRIDE (CV & Cheque Printing) */}
+        {/* 2. CURRENT SERIES NUMBER / CV NUMBER (Per Company, CV Only) */}
+        {activeForm === "CV" && seriesConfig && (
+          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="sidebar-series-input"
+                className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5"
+              >
+                <Hash className="w-3.5 h-3.5 text-blue-400" />
+                Current Series (CV No.)
+              </label>
+              <span className="text-[10px] font-mono text-blue-300 bg-blue-500/15 border border-blue-500/30 px-1.5 py-0.5 rounded">
+                {seriesConfig.prefix
+                  ? `${seriesConfig.prefix}${String(
+                      seriesConfig.current_number
+                    ).padStart(seriesConfig.digit_count, "0")}`
+                  : String(seriesConfig.current_number).padStart(
+                      seriesConfig.digit_count,
+                      "0"
+                    )}
+              </span>
+            </div>
+            <div className="flex gap-1.5">
+              <input
+                id="sidebar-series-input"
+                name="series_number"
+                type="number"
+                value={seriesInput}
+                onChange={(e) => setSeriesInput(e.target.value)}
+                onBlur={() =>
+                  onUpdateSeries(
+                    Math.max(1, parseInt(seriesInput, 10) || 1),
+                    seriesConfig.prefix
+                  )
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    onUpdateSeries(
+                      Math.max(1, parseInt(seriesInput, 10) || 1),
+                      seriesConfig.prefix
+                    );
+                  }
+                }}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const next = Math.max(
+                    1,
+                    (parseInt(seriesInput, 10) || 1) - 1
+                  );
+                  setSeriesInput(next.toString());
+                  onUpdateSeries(next, seriesConfig.prefix);
+                }}
+                className="w-9 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold text-slate-200 cursor-pointer"
+                title="Decrement Series Number for this Company"
+              >
+                -
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = (parseInt(seriesInput, 10) || 1) + 1;
+                  setSeriesInput(next.toString());
+                  onUpdateSeries(next, seriesConfig.prefix);
+                }}
+                className="w-9 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-bold text-slate-200 cursor-pointer"
+                title="Increment Series Number for this Company"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 3. PAYEE OVERRIDE (CV & Cheque Printing) */}
         {(activeForm === "CV" || activeForm === "Check") && (
           <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 space-y-2">
             <label
@@ -184,7 +278,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* 3. ENTER REFERENCE NUMBER */}
+        {/* 4. ENTER REFERENCE NUMBER */}
         <search>
           <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
             <label
@@ -224,19 +318,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </search>
 
-        {/* 4. SIGNATORY (CV Only) */}
-        {activeForm === "CV" && (
+        {/* 5. SIGNATORY & PRINT HISTORY */}
+        <div className="grid grid-cols-2 gap-2">
+          {activeForm === "CV" && (
+            <button
+              type="button"
+              onClick={onOpenSignatoriesModal}
+              className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 py-2.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span className="truncate">Signatory</span>
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={onOpenSignatoriesModal}
-            className="w-full flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 py-2.5 px-3 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer"
+            onClick={onOpenHistoryModal}
+            className={`${
+              activeForm === "CV" ? "" : "col-span-2"
+            } flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 py-2.5 px-2.5 rounded-xl text-xs font-bold uppercase tracking-wider transition cursor-pointer`}
+            title="View & reprint previously printed Check Vouchers"
           >
-            <Users className="w-4 h-4 text-blue-400" />
-            Signatory
+            <History className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">History</span>
+            {historyCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-mono">
+                {historyCount}
+              </span>
+            )}
           </button>
-        )}
+        </div>
 
-        {/* 5. PRINT */}
+        {/* 6. PRINT */}
         <button
           type="button"
           onClick={onPrint}

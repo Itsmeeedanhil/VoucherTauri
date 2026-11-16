@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   BradwellFieldKey,
@@ -8,12 +8,15 @@ import {
   Form2307Row,
   FormType,
   LayoutConfig,
+  SeriesConfig,
   SignatoriesConfig,
   VoucherData,
+  VoucherHistoryEntry,
 } from "./types/voucher";
 import { Sidebar } from "./components/Sidebar";
 import { VoucherCanvas } from "./components/VoucherCanvas";
 import { SignatoriesModal } from "./components/SignatoriesModal";
+import { VoucherHistoryModal } from "./components/VoucherHistoryModal";
 
 const createEmpty2307Rows = (): Form2307Row[] =>
   Array.from({ length: 10 }, () => ({
@@ -53,6 +56,11 @@ const createDefaultBir2307 = (
     table1: createEmpty2307Rows(),
     table2: createEmpty2307Rows(),
   };
+};
+
+const formatSeriesString = (ser: SeriesConfig): string => {
+  const digits = String(ser.current_number).padStart(ser.digit_count || 5, "0");
+  return ser.prefix ? `${ser.prefix}${digits}` : digits;
 };
 
 const DEFAULT_CLIENT_PROFILE: ClientProfile = {
@@ -110,6 +118,7 @@ export function App() {
     DEFAULT_CLIENT_PROFILE.sub_companies[0]
   );
   const [refNumber, setRefNumber] = useState<string>("");
+  const [seriesConfig, setSeriesConfig] = useState<SeriesConfig | null>(null);
   const [signatories, setSignatories] = useState<SignatoriesConfig | null>(
     null
   );
@@ -125,13 +134,31 @@ export function App() {
   const [payeeOverride, setPayeeOverride] = useState<string>("");
   const [isSignatoriesOpen, setIsSignatoriesOpen] = useState<boolean>(false);
 
+  // Print History State
+  const [voucherHistory, setVoucherHistory] = useState<VoucherHistoryEntry[]>(
+    []
+  );
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+  const isLoadedFromHistoryRef = useRef<boolean>(false);
+
   // Interactive Field Movement / Calibration & Full Form Template
   const [calibrationMode, setCalibrationMode] = useState<boolean>(false);
   const [showWireframeGuide, setShowWireframeGuide] = useState<boolean>(true);
   const [selectedField, setSelectedField] =
     useState<BradwellFieldKey | null>(null);
 
-  // Load Client Profiles from SQLite
+  const loadHistory = useCallback(async () => {
+    try {
+      const hist = await invoke<VoucherHistoryEntry[]>("get_voucher_history", {
+        companyName: null,
+      });
+      setVoucherHistory(hist || []);
+    } catch (err) {
+      console.warn("History fetch warning:", err);
+    }
+  }, []);
+
+  // Load Client Profiles & History from SQLite
   useEffect(() => {
     async function init() {
       try {
@@ -145,37 +172,59 @@ export function App() {
       } catch (err) {
         console.warn("Running outside Tauri or DB init warning:", err);
       }
+      loadHistory();
     }
     init();
-  }, []);
+  }, [loadHistory]);
 
-  // Load Signatories & sync active company name when company or client changes
+  // Load per-company Series & Signatories when company or client changes
   useEffect(() => {
     async function loadMeta() {
+      const seriesKey = selectedCompany || selectedClient.code;
       try {
-        const sig = await invoke<SignatoriesConfig>("get_signatories", {
-          clientCode: selectedClient.code,
-        });
+        const [ser, sig] = await Promise.all([
+          invoke<SeriesConfig>("get_series", {
+            clientCode: seriesKey,
+            formType: "CV",
+          }),
+          invoke<SignatoriesConfig>("get_signatories", {
+            clientCode: selectedClient.code,
+          }),
+        ]);
+        setSeriesConfig(ser);
         setSignatories(sig);
+
+        const formatted = formatSeriesString(ser);
+
+        setVoucherData((prev) => {
+          if (!prev) return null;
+          // If user loaded a historical voucher for this exact company, preserve its historical CV number
+          if (isLoadedFromHistoryRef.current && prev.company_name === selectedCompany) {
+            return prev;
+          }
+          isLoadedFromHistoryRef.current = false;
+          return {
+            ...prev,
+            company_name: selectedCompany,
+            series_number: formatted,
+          };
+        });
       } catch (err) {
         console.warn("Meta fetch fallback:", err);
       }
-
-      setVoucherData((prev) =>
-        prev
-          ? {
-              ...prev,
-              company_name: selectedCompany,
-            }
-          : null
-      );
     }
     loadMeta();
   }, [selectedClient, selectedCompany]);
 
   const handleSelectClient = (client: ClientProfile) => {
+    isLoadedFromHistoryRef.current = false;
     setSelectedClient(client);
     setSelectedCompany(client.sub_companies[0] || client.name);
+  };
+
+  const handleSelectCompany = (company: string) => {
+    isLoadedFromHistoryRef.current = false;
+    setSelectedCompany(company);
   };
 
   const fetchVoucher = useCallback(async () => {
@@ -185,6 +234,7 @@ export function App() {
     }
     setIsLoading(true);
     setErrorMsg(null);
+    isLoadedFromHistoryRef.current = false;
     setBir2307Data(createDefaultBir2307(selectedCompany, selectedClient));
     try {
       const data = await invoke<VoucherData>("query_quickbooks_voucher", {
@@ -193,10 +243,7 @@ export function App() {
         companyName: selectedCompany,
         refNumber: refNumber.trim(),
       });
-      setVoucherData({
-        ...data,
-        series_number: data.ref_number,
-      });
+      setVoucherData(data);
 
       setBir2307Data(() => {
         const fresh = createDefaultBir2307(selectedCompany, selectedClient);
@@ -293,6 +340,32 @@ export function App() {
     }
   }, [selectedClient, selectedCompany, refNumber, signatories]);
 
+  const handleUpdateSeries = async (newNum: number, newPrefix: string) => {
+    if (!seriesConfig) return;
+    const seriesKey = selectedCompany || selectedClient.code;
+    const updated: SeriesConfig = {
+      ...seriesConfig,
+      client_code: seriesKey,
+      current_number: newNum,
+      prefix: newPrefix,
+    };
+    setSeriesConfig(updated);
+    isLoadedFromHistoryRef.current = false;
+    try {
+      await invoke("update_series", { config: updated });
+      const formatted = formatSeriesString(updated);
+
+      if (voucherData) {
+        setVoucherData({
+          ...voucherData,
+          series_number: formatted,
+        });
+      }
+    } catch (err: any) {
+      setErrorMsg(String(err));
+    }
+  };
+
   const handleSaveBir2307 = useCallback(
     async (data: Form2307Data) => {
       const withCompany = { ...data, company_name: selectedCompany };
@@ -379,6 +452,46 @@ export function App() {
     }
   };
 
+  const handleLoadHistoryEntry = (entry: VoucherHistoryEntry) => {
+    isLoadedFromHistoryRef.current = true;
+    setSelectedCompany(entry.company_name);
+    setRefNumber(entry.ref_number);
+    setPayeeOverride("");
+    setVoucherData({
+      ...entry.voucher_data,
+      company_name: entry.company_name,
+      series_number: entry.cv_number,
+      payee_name: entry.payee_name,
+    });
+    setActiveForm("CV");
+    setIsHistoryOpen(false);
+  };
+
+  const handleReprintHistoryEntry = (entry: VoucherHistoryEntry) => {
+    handleLoadHistoryEntry(entry);
+    setTimeout(() => {
+      const prevTitle = document.title;
+      document.title = "";
+      const scroller = document.querySelector(".print-area");
+      if (scroller) {
+        scroller.scrollTop = 0;
+        scroller.scrollLeft = 0;
+      }
+      window.scrollTo(0, 0);
+      window.print();
+      document.title = prevTitle;
+    }, 150);
+  };
+
+  const handleDeleteHistoryEntry = async (id: number) => {
+    try {
+      await invoke("delete_voucher_history", { id });
+      setVoucherHistory((prev) => prev.filter((item) => item.id !== id));
+    } catch (err: any) {
+      setErrorMsg(String(err));
+    }
+  };
+
   const handlePrint = async () => {
     const prevTitle = document.title;
     document.title = "";
@@ -398,6 +511,49 @@ export function App() {
 
     window.print();
     document.title = prevTitle;
+
+    if (activeForm === "CV" && voucherData) {
+      const effectivePayee = payeeOverride.trim() || voucherData.payee_name;
+      const snapshotToSave: VoucherData = {
+        ...voucherData,
+        company_name: selectedCompany,
+        payee_name: effectivePayee,
+      };
+
+      try {
+        await invoke("save_voucher_history", {
+          companyName: selectedCompany,
+          cvNumber: voucherData.series_number,
+          refNumber: voucherData.ref_number,
+          payeeName: effectivePayee,
+          voucherDate: voucherData.date,
+          totalAmount: voucherData.total_amount,
+          voucherData: snapshotToSave,
+        });
+        loadHistory();
+      } catch (err) {
+        console.error("Failed to save voucher print history:", err);
+      }
+
+      // Auto-increment the company's series number if printing the current active series number (not a historical reprint)
+      if (seriesConfig && !isLoadedFromHistoryRef.current) {
+        const seriesKey = selectedCompany || selectedClient.code;
+        try {
+          const nextSer = await invoke<SeriesConfig>("increment_series", {
+            clientCode: seriesKey,
+            formType: "CV",
+          });
+          setSeriesConfig(nextSer);
+          const formatted = formatSeriesString(nextSer);
+          setVoucherData({
+            ...voucherData,
+            series_number: formatted,
+          });
+        } catch (err) {
+          console.error("Failed to auto-increment CV series:", err);
+        }
+      }
+    }
   };
 
   return (
@@ -421,14 +577,18 @@ export function App() {
         selectedClient={selectedClient}
         onSelectClient={handleSelectClient}
         selectedCompany={selectedCompany}
-        onSelectCompany={setSelectedCompany}
+        onSelectCompany={handleSelectCompany}
         refNumber={refNumber}
         onRefNumberChange={setRefNumber}
         onSearchVoucher={fetchVoucher}
         isLoading={isLoading}
+        seriesConfig={seriesConfig}
+        onUpdateSeries={handleUpdateSeries}
         payeeOverride={payeeOverride}
         onPayeeOverrideChange={setPayeeOverride}
         onOpenSignatoriesModal={() => setIsSignatoriesOpen(true)}
+        historyCount={voucherHistory.length}
+        onOpenHistoryModal={() => setIsHistoryOpen(true)}
         onPrint={handlePrint}
       />
 
@@ -465,6 +625,17 @@ export function App() {
           onSaveSignatories={handleSaveSignatories}
         />
       )}
+
+      <VoucherHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        entries={voucherHistory}
+        companies={selectedClient.sub_companies}
+        selectedCompany={selectedCompany}
+        onLoadEntry={handleLoadHistoryEntry}
+        onReprintEntry={handleReprintHistoryEntry}
+        onDeleteEntry={handleDeleteHistoryEntry}
+      />
     </div>
   );
 }

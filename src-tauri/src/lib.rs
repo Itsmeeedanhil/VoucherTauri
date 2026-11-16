@@ -4,7 +4,9 @@ pub mod models;
 pub mod quickbooks;
 
 use db::DbState;
-use models::{ClientProfile, Form2307Data, SeriesConfig, SignatoriesConfig, VoucherData};
+use models::{
+    ClientProfile, Form2307Data, SeriesConfig, SignatoriesConfig, VoucherData, VoucherHistoryEntry,
+};
 use tauri::{Manager, State};
 
 #[tauri::command]
@@ -67,6 +69,43 @@ fn get_bir2307(db: State<'_, DbState>, company_name: String) -> Result<Form2307D
 #[tauri::command]
 fn save_bir2307(db: State<'_, DbState>, data: Form2307Data) -> Result<(), String> {
     db.save_form2307(&data).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_voucher_history(
+    db: State<'_, DbState>,
+    company_name: String,
+    cv_number: String,
+    ref_number: String,
+    payee_name: String,
+    voucher_date: String,
+    total_amount: f64,
+    voucher_data: VoucherData,
+) -> Result<VoucherHistoryEntry, String> {
+    db.save_voucher_history(
+        &company_name,
+        &cv_number,
+        &ref_number,
+        &payee_name,
+        &voucher_date,
+        total_amount,
+        &voucher_data,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_voucher_history(
+    db: State<'_, DbState>,
+    company_name: Option<String>,
+) -> Result<Vec<VoucherHistoryEntry>, String> {
+    db.get_voucher_history(company_name.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_voucher_history(db: State<'_, DbState>, id: i64) -> Result<(), String> {
+    db.delete_voucher_history(id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -139,6 +178,9 @@ pub fn run() {
             save_signatories,
             get_bir2307,
             save_bir2307,
+            save_voucher_history,
+            get_voucher_history,
+            delete_voucher_history,
             query_quickbooks_voucher
         ])
         .run(tauri::generate_context!())
