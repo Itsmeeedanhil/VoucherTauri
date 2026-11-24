@@ -5,6 +5,7 @@ export interface FieldOffset {
 }
 
 export type BradwellFieldKey =
+  | "company_logo"
   | "company_header"
   | "payee_name"
   | "payee_address"

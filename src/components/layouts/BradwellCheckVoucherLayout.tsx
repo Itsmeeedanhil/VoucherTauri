@@ -58,13 +58,20 @@ export type CvFieldKey = Exclude<
  */
 export const COMPANY_HEADER_DETAILS: Record<
   string,
-  { title: string; tinLine: string; addressLine1: string; addressLine2?: string }
+  {
+    title: string;
+    tinLine: string;
+    addressLine1: string;
+    addressLine2?: string;
+    logoUrl?: string;
+  }
 > = {
   "Bradwell Sales and Marketing Corp.": {
     title: "BRADWELL SALES AND MARKETING CORP.",
     tinLine: "VAT Reg. TIN: 010-261-476-00000",
     addressLine1: "#84-B Malakas St. Pinyahan Diliman",
     addressLine2: "1100 Quezon City NCR, Second District Philippines",
+    logoUrl: "/logo-bradwell.png",
   },
   "Mapleway International Distributions Corp.": {
     title: "MAPLEWAY INTERNATIONAL DISTRIBUTIONS CORP.",
@@ -73,6 +80,7 @@ export const COMPANY_HEADER_DETAILS: Record<
       "Room 14 Philexcel Business Center 2, Philexcel Business Park, M.A. Roxas Highway,",
     addressLine2:
       "Clark Freeport Zone, 2023 Clark, Pampanga, Philippines * Phone# (632) 5000878",
+    logoUrl: "/logo-mapleway.png",
   },
   "StoneBridge Materials Corp.": {
     title: "STONEBRIDGE MATERIALS CORP.",
@@ -80,6 +88,7 @@ export const COMPANY_HEADER_DETAILS: Record<
     addressLine1:
       "Room 6, Philexcel Business Arcade 3, Philexcel Business Park, M.A. Roxas Highway,",
     addressLine2: "Clark Freeport Zone, 2023 Clark, Pampanga, Philippines",
+    logoUrl: "/logo-stonebridge.png",
   },
 };
 
@@ -88,13 +97,22 @@ export const COMPANY_HEADER_DETAILS: Record<
  * aligned to the full Bradwell Check Voucher form template.
  */
 export const BRADWELL_FIELD_ANCHORS: Record<CvFieldKey, BradwellFieldAnchor> = {
+  company_logo: {
+    key: "company_logo",
+    label: "Company Logo",
+    xIn: 0.35,
+    yIn: 0.22,
+    widthIn: 1.02,
+    heightIn: 0.8,
+    defaultFontPt: 10,
+  },
   company_header: {
     key: "company_header",
     label: "Company Header (Name / TIN / Address)",
-    xIn: 0.35,
-    yIn: 0.45,
-    widthIn: 4.9,
-    defaultFontPt: 11.5,
+    xIn: 1.44,
+    yIn: 0.36,
+    widthIn: 3.92,
+    defaultFontPt: 10.5,
     fontWeight: "bold",
   },
   payee_name: {
@@ -314,13 +332,17 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
     const totalXmm = globalXmm + (fOff.x_mm || 0);
     const totalYmm = globalYmm + (fOff.y_mm || 0);
     const fontPt = fOff.font_size_pt ?? anchor.defaultFontPt;
+    const scale =
+      key === "company_logo" && anchor.defaultFontPt > 0
+        ? fontPt / anchor.defaultFontPt
+        : 1;
 
     return {
       position: "absolute",
       left: `calc(${anchor.xIn}in + ${totalXmm}mm)`,
       top: `calc(${anchor.yIn}in + ${totalYmm}mm)`,
-      width: `${anchor.widthIn}in`,
-      height: anchor.heightIn ? `${anchor.heightIn}in` : undefined,
+      width: `${anchor.widthIn * scale}in`,
+      height: anchor.heightIn ? `${anchor.heightIn * scale}in` : undefined,
       fontSize: `${fontPt}pt`,
       fontWeight: anchor.fontWeight ?? "normal",
       textAlign: anchor.align ?? "left",
@@ -784,58 +806,87 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
         </div>
       )}
 
-      {/* COMPANY HEADER (Selected Company Name, TIN, Address in Top-Left) */}
+      {/* COMPANY LOGO & COMPANY HEADER (Selected Company Logo, Name, TIN, Address in Top-Left) */}
       {showCompanyHeader && (
-        <div
-          className={fieldCalibrationClass("company_header")}
-          style={getFieldStyle("company_header")}
-          onMouseDown={(e) => handleMouseDownField(e, "company_header")}
-          title="Drag to adjust Company Header position"
-        >
+        <>
+          {companyDetails.logoUrl && (
+            <div
+              className={fieldCalibrationClass("company_logo")}
+              style={{
+                ...getFieldStyle("company_logo"),
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              onMouseDown={(e) => handleMouseDownField(e, "company_logo")}
+              title="Drag to adjust Company Logo position"
+            >
+              <img
+                src={companyDetails.logoUrl}
+                alt={companyDetails.title}
+                draggable={false}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  width: "auto",
+                  height: "auto",
+                  objectFit: "contain",
+                }}
+              />
+            </div>
+          )}
+
           <div
-            style={{
-              fontWeight: 800,
-              letterSpacing: "0.01em",
-              lineHeight: 1.15,
-            }}
+            className={fieldCalibrationClass("company_header")}
+            style={getFieldStyle("company_header")}
+            onMouseDown={(e) => handleMouseDownField(e, "company_header")}
+            title="Drag to adjust Company Header position"
           >
-            {companyDetails.title}
+            <div
+              style={{
+                fontWeight: 800,
+                letterSpacing: "0.01em",
+                lineHeight: 1.15,
+              }}
+            >
+              {companyDetails.title}
+            </div>
+            {companyDetails.tinLine && (
+              <div
+                style={{
+                  fontSize: "7.5pt",
+                  fontWeight: 600,
+                  lineHeight: 1.2,
+                  marginTop: "1px",
+                }}
+              >
+                {companyDetails.tinLine}
+              </div>
+            )}
+            {companyDetails.addressLine1 && (
+              <div
+                style={{
+                  fontSize: "7.2pt",
+                  fontWeight: 400,
+                  lineHeight: 1.15,
+                }}
+              >
+                {companyDetails.addressLine1}
+              </div>
+            )}
+            {companyDetails.addressLine2 && (
+              <div
+                style={{
+                  fontSize: "7.2pt",
+                  fontWeight: 400,
+                  lineHeight: 1.15,
+                }}
+              >
+                {companyDetails.addressLine2}
+              </div>
+            )}
           </div>
-          {companyDetails.tinLine && (
-            <div
-              style={{
-                fontSize: "7.5pt",
-                fontWeight: 600,
-                lineHeight: 1.2,
-                marginTop: "1px",
-              }}
-            >
-              {companyDetails.tinLine}
-            </div>
-          )}
-          {companyDetails.addressLine1 && (
-            <div
-              style={{
-                fontSize: "7.5pt",
-                fontWeight: 400,
-                lineHeight: 1.15,
-              }}
-            >
-              {companyDetails.addressLine1}
-            </div>
-          )}
-          {companyDetails.addressLine2 && (
-            <div
-              style={{
-                fontSize: "7.5pt",
-                fontWeight: 400,
-                lineHeight: 1.15,
-              }}
-            >
-              {companyDetails.addressLine2}
-            </div>
-          )}
-        </div>
+        </>
       )}
 
       {/* PAYEE NAME */}
