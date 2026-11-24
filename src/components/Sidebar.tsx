@@ -278,7 +278,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* 4. ENTER REFERENCE NUMBER */}
+        {/* 4. ENTER TRANSACTION NUMBER */}
         <search>
           <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
             <label
@@ -287,8 +287,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <Search className="w-3.5 h-3.5 text-blue-400" />
               {activeForm === "BIR2307"
-                ? "Pull Payee from Check Ref #"
-                : "Enter Reference Number"}
+                ? "Pull Payee from Trans #"
+                : "Enter Transaction Number"}
             </label>
             <input
               id="sidebar-ref-number"
@@ -300,7 +300,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               value={refNumber}
               onChange={(e) => onRefNumberChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Enter Check Ref No."
+              placeholder="Enter Journal Trans #"
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
             />
             <button

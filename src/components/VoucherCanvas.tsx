@@ -318,11 +318,11 @@ export const VoucherCanvas: React.FC<Props> = ({
                 <FileSpreadsheet className="w-6 h-6" />
               </div>
               <h2 className="text-sm font-bold text-white">
-                Enter Reference Number to Search
+                Enter Transaction Number to Search
               </h2>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Make sure QuickBooks Desktop is open, enter a Check Reference
-                Number in the left panel, and click{" "}
+                Make sure QuickBooks Desktop is open, enter a Journal
+                Transaction Number (Trans #) in the left panel, and click{" "}
                 <span className="text-blue-400 font-semibold">SEARCH</span>.
               </p>
             </div>
@@ -346,11 +346,11 @@ export const VoucherCanvas: React.FC<Props> = ({
                 <CreditCard className="w-6 h-6" />
               </div>
               <h2 className="text-sm font-bold text-white">
-                Enter Check Reference Number for Cheque Printing
+                Enter Transaction Number for Cheque Printing
               </h2>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Make sure QuickBooks Desktop is open, enter a Check Reference
-                Number in the left panel, and click{" "}
+                Make sure QuickBooks Desktop is open, enter a Journal
+                Transaction Number (Trans #) in the left panel, and click{" "}
                 <span className="text-blue-400 font-semibold">SEARCH</span>.
               </p>
             </div>

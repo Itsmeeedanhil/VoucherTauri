@@ -240,7 +240,7 @@ export function App() {
 
   const fetchVoucher = useCallback(async () => {
     if (!refNumber.trim()) {
-      setErrorMsg("Please enter a Reference Number.");
+      setErrorMsg("Please enter a Journal Transaction Number (Trans #).");
       return;
     }
     setIsLoading(true);
@@ -249,7 +249,7 @@ export function App() {
     setBir2307Data(createDefaultBir2307(selectedCompany, selectedClient));
     try {
       const data = await invoke<VoucherData>("query_quickbooks_voucher", {
-        formType: "CV",
+        formType: activeForm === "Check" ? "Check" : "CV",
         clientCode: selectedClient.code,
         companyName: selectedCompany,
         refNumber: refNumber.trim(),

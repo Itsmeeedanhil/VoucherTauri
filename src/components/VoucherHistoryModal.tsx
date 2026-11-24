@@ -120,7 +120,7 @@ export const VoucherHistoryModal: React.FC<Props> = ({
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search CV No., Check Ref #, Payee..."
+              placeholder="Search CV No., Trans # / Check #, Payee..."
               className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
             />
           </div>

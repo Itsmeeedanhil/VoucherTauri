@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -187,11 +188,11 @@ namespace QBBridge
             Console.OutputEncoding = Encoding.UTF8;
             if (args.Length < 2)
             {
-                PrintJson(new BridgeResponse { success = false, error = "Usage: QBBridge.exe <FormType> <RefNumber>" });
+                PrintJson(new BridgeResponse { success = false, error = "Usage: QBBridge.exe <FormType> <TxnNumber>" });
                 return 1;
             }
 
-            string refNumber = args[1].Trim();
+            string txnNumber = args[1].Trim();
 
             try
             {
@@ -199,16 +200,10 @@ namespace QBBridge
                 {
                     session.Open("VoucherPro Check Data");
 
-                    // 1. Load Chart of Accounts lookup (ListID -> AccountNumber, FullName -> AccountNumber)
                     Dictionary<string, string> acctNumById = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     Dictionary<string, string> acctNumByName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    LoadChartOfAccounts(session, acctNumById, acctNumByName);
 
-                    // 2. Load Item -> Asset/Expense Account lookup
-                    Dictionary<string, ItemAccountInfo> itemAcctMap = new Dictionary<string, ItemAccountInfo>(StringComparer.OrdinalIgnoreCase);
-                    LoadItemAccountMap(session, acctNumById, acctNumByName, itemAcctMap);
-
-                    BridgeResponse resp = QueryCheckOrBillPayment(session, refNumber, acctNumById, acctNumByName, itemAcctMap);
+                    BridgeResponse resp = QueryCheckOrBillPayment(session, txnNumber, acctNumById, acctNumByName);
 
                     if (resp != null && resp.success)
                     {
@@ -309,9 +304,17 @@ namespace QBBridge
             Dictionary<string, string> byId,
             Dictionary<string, string> byName)
         {
+            if (byId.Count > 0 || byName.Count > 0) return;
             try
             {
-                XmlDocument doc = session.ProcessRequest("<AccountQueryRq><ActiveStatus>All</ActiveStatus></AccountQueryRq>");
+                XmlDocument doc = session.ProcessRequest(
+                    "<AccountQueryRq>" +
+                    "<ActiveStatus>All</ActiveStatus>" +
+                    "<IncludeRetElement>ListID</IncludeRetElement>" +
+                    "<IncludeRetElement>FullName</IncludeRetElement>" +
+                    "<IncludeRetElement>AccountNumber</IncludeRetElement>" +
+                    "</AccountQueryRq>"
+                );
                 XmlNodeList list = doc.SelectNodes("//AccountRet");
                 if (list == null) return;
 
@@ -333,15 +336,31 @@ namespace QBBridge
             catch { }
         }
 
-        static void LoadItemAccountMap(
+        static void LoadSpecificItemsAccountMap(
             QbXmlSession session,
+            XmlNodeList itemLines,
             Dictionary<string, string> acctNumById,
             Dictionary<string, string> acctNumByName,
             Dictionary<string, ItemAccountInfo> itemAcctMap)
         {
+            if (itemLines == null || itemLines.Count == 0) return;
             try
             {
-                XmlDocument doc = session.ProcessRequest("<ItemQueryRq><ActiveStatus>All</ActiveStatus></ItemQueryRq>");
+                HashSet<string> ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                StringBuilder sb = new StringBuilder("<ItemQueryRq>");
+                foreach (XmlNode il in itemLines)
+                {
+                    string itemId = GetNodeText(il, "ItemRef/ListID");
+                    if (!string.IsNullOrEmpty(itemId) && !ids.Contains(itemId))
+                    {
+                        ids.Add(itemId);
+                        sb.Append("<ListID>").Append(EscapeXml(itemId)).Append("</ListID>");
+                    }
+                }
+                sb.Append("</ItemQueryRq>");
+                if (ids.Count == 0) return;
+
+                XmlDocument doc = session.ProcessRequest(sb.ToString());
                 XmlNode respNode = doc.SelectSingleNode("//ItemQueryRs");
                 if (respNode == null) return;
 
@@ -430,237 +449,482 @@ namespace QBBridge
             return debits;
         }
 
-        static BridgeResponse QueryCheckOrBillPayment(
-            QbXmlSession session,
-            string refNumber,
-            Dictionary<string, string> acctNumById,
-            Dictionary<string, string> acctNumByName,
-            Dictionary<string, ItemAccountInfo> itemAcctMap)
+        static string GetTxnCachePath()
         {
-            string escapedRef = EscapeXml(refNumber);
-            string rqXml =
-                "<CheckQueryRq>" +
-                "<RefNumberFilter><MatchCriterion>StartsWith</MatchCriterion><RefNumber>" + escapedRef + "</RefNumber></RefNumberFilter>" +
-                "<IncludeLineItems>true</IncludeLineItems>" +
-                "</CheckQueryRq>" +
-                "<BillPaymentCheckQueryRq>" +
-                "<RefNumberFilter><MatchCriterion>StartsWith</MatchCriterion><RefNumber>" + escapedRef + "</RefNumber></RefNumberFilter>" +
-                "<IncludeLineItems>true</IncludeLineItems>" +
-                "</BillPaymentCheckQueryRq>";
+            return Path.Combine(Path.GetTempPath(), "voucherpro_qb_txn_cache.txt");
+        }
 
-            XmlDocument doc = session.ProcessRequest(rqXml);
-
-            // 1. Check Response: Regular Check (Write Checks)
-            XmlNodeList chkList = doc.SelectNodes("//CheckRet");
-            if (chkList != null && chkList.Count > 0)
+        static Dictionary<string, Tuple<string, string>> LoadTxnCache()
+        {
+            var map = new Dictionary<string, Tuple<string, string>>(StringComparer.OrdinalIgnoreCase);
+            try
             {
-                XmlNode chk = null;
-                foreach (XmlNode candidate in chkList)
+                string path = GetTxnCachePath();
+                if (!File.Exists(path)) return map;
+                foreach (string line in File.ReadAllLines(path))
                 {
-                    if (string.Equals(GetNodeText(candidate, "RefNumber"), refNumber, StringComparison.OrdinalIgnoreCase))
+                    string[] parts = line.Split('|');
+                    if (parts.Length == 3 && !string.IsNullOrEmpty(parts[0]) && !string.IsNullOrEmpty(parts[2]))
                     {
-                        chk = candidate;
-                        break;
+                        map[parts[0]] = Tuple.Create(parts[1], parts[2]);
                     }
                 }
-                if (chk == null) chk = chkList[0];
+            }
+            catch { }
+            return map;
+        }
 
-                BridgeResponse br = new BridgeResponse { success = true };
-                string foundRef = GetNodeText(chk, "RefNumber");
-                br.ref_number = !string.IsNullOrEmpty(foundRef) ? foundRef : refNumber;
-                br.date = FormatQbDate(GetNodeText(chk, "TxnDate"));
-                br.payee_name = GetNodeText(chk, "PayeeEntityRef/FullName");
-                XmlNode addrNode = chk.SelectSingleNode("Address");
-                br.payee_address = ExtractAddress(addrNode);
-                br.payee_zip = GetNodeText(addrNode, "PostalCode");
-                string payeeListId = GetNodeText(chk, "PayeeEntityRef/ListID");
-                QueryVendorDetails(session, payeeListId, br.payee_name, br);
-
-                string bankFullName = GetNodeText(chk, "AccountRef/FullName");
-                string bankListId = GetNodeText(chk, "AccountRef/ListID");
-                string bankLeafName = GetLeafAccountName(bankFullName);
-                string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
-
-                br.bank_account = bankLeafName;
-                br.memo = GetNodeText(chk, "Memo");
-                br.total_amount = GetNodeDouble(chk, "Amount");
-
-                List<LineItemDto> rawLines = new List<LineItemDto>();
-
-                XmlNodeList expLines = chk.SelectNodes("ExpenseLineRet");
-                if (expLines != null)
+        static void SaveTxnCache(Dictionary<string, Tuple<string, string>> map)
+        {
+            try
+            {
+                string path = GetTxnCachePath();
+                var lines = new List<string>(map.Count);
+                foreach (var kv in map)
                 {
-                    foreach (XmlNode exp in expLines)
-                    {
-                        string accName = GetNodeText(exp, "AccountRef/FullName");
-                        string accId = GetNodeText(exp, "AccountRef/ListID");
-                        string accNum = LookupAccountNumber(accId, accName, acctNumById, acctNumByName);
-                        double amt = GetNodeDouble(exp, "Amount");
+                    lines.Add(kv.Key + "|" + kv.Value.Item1 + "|" + kv.Value.Item2);
+                }
+                File.WriteAllLines(path, lines.ToArray());
+            }
+            catch { }
+        }
 
-                        rawLines.Add(new LineItemDto
-                        {
-                            account_number = accNum,
-                            account_name = GetLeafAccountName(accName),
-                            class_name = GetNodeText(exp, "ClassRef/FullName"),
-                            customer_job = GetNodeText(exp, "CustomerRef/FullName"),
-                            memo = GetNodeText(exp, "Memo"),
-                            debit = amt >= 0 ? amt : 0.0,
-                            credit = amt < 0 ? Math.Abs(amt) : 0.0
-                        });
+        static string BuildHeaderWindowQuery(string fromDateIso, string toDateIso)
+        {
+            StringBuilder dateFilter = new StringBuilder();
+            if (!string.IsNullOrEmpty(fromDateIso) || !string.IsNullOrEmpty(toDateIso))
+            {
+                dateFilter.Append("<ModifiedDateRangeFilter>");
+                if (!string.IsNullOrEmpty(fromDateIso))
+                    dateFilter.Append("<FromModifiedDate>").Append(fromDateIso).Append("</FromModifiedDate>");
+                if (!string.IsNullOrEmpty(toDateIso))
+                    dateFilter.Append("<ToModifiedDate>").Append(toDateIso).Append("</ToModifiedDate>");
+                dateFilter.Append("</ModifiedDateRangeFilter>");
+            }
+            string f = dateFilter.ToString();
+            string cols = "<IncludeRetElement>TxnID</IncludeRetElement><IncludeRetElement>TxnNumber</IncludeRetElement>";
+
+            return
+                "<CheckQueryRq>" + f + cols + "</CheckQueryRq>" +
+                "<BillPaymentCheckQueryRq>" + f + cols + "</BillPaymentCheckQueryRq>" +
+                "<JournalEntryQueryRq>" + f + cols + "</JournalEntryQueryRq>";
+        }
+
+        static void IndexResponseAndMatch(
+            XmlDocument indexDoc,
+            string txnNumber,
+            Dictionary<string, Tuple<string, string>> cache,
+            ref string matchedCheckTxnId,
+            ref string matchedBpTxnId,
+            ref string matchedJeTxnId)
+        {
+            if (indexDoc == null) return;
+
+            XmlNodeList chkList = indexDoc.SelectNodes("//CheckRet");
+            if (chkList != null)
+            {
+                foreach (XmlNode c in chkList)
+                {
+                    string tNum = GetNodeText(c, "TxnNumber");
+                    string tId = GetNodeText(c, "TxnID");
+                    if (!string.IsNullOrEmpty(tNum) && !string.IsNullOrEmpty(tId))
+                    {
+                        cache[tNum] = Tuple.Create("CHK", tId);
+                        if (string.Equals(tNum, txnNumber, StringComparison.OrdinalIgnoreCase))
+                            matchedCheckTxnId = tId;
                     }
                 }
-
-                XmlNodeList itemLines = chk.SelectNodes("ItemLineRet");
-                if (itemLines != null)
-                {
-                    foreach (XmlNode il in itemLines)
-                    {
-                        string itemId = GetNodeText(il, "ItemRef/ListID");
-                        string itemName = GetNodeText(il, "ItemRef/FullName");
-                        double amt = GetNodeDouble(il, "Amount");
-
-                        string resolvedAcctName = GetLeafAccountName(itemName);
-                        string resolvedAcctNum = "";
-                        if (!string.IsNullOrEmpty(itemId) && itemAcctMap.ContainsKey(itemId))
-                        {
-                            resolvedAcctName = itemAcctMap[itemId].AccountLeafName;
-                            resolvedAcctNum = itemAcctMap[itemId].AccountNumber;
-                        }
-                        else if (!string.IsNullOrEmpty(itemName) && itemAcctMap.ContainsKey(itemName))
-                        {
-                            resolvedAcctName = itemAcctMap[itemName].AccountLeafName;
-                            resolvedAcctNum = itemAcctMap[itemName].AccountNumber;
-                        }
-
-                        rawLines.Add(new LineItemDto
-                        {
-                            account_number = resolvedAcctNum,
-                            account_name = resolvedAcctName,
-                            class_name = GetNodeText(il, "ClassRef/FullName"),
-                            customer_job = GetNodeText(il, "CustomerRef/FullName"),
-                            memo = GetNodeText(il, "Desc"),
-                            debit = amt >= 0 ? amt : 0.0,
-                            credit = amt < 0 ? Math.Abs(amt) : 0.0,
-                            quantity = GetNodeDouble(il, "Quantity"),
-                            unit_cost = GetNodeDouble(il, "Cost"),
-                            item_name = itemName
-                        });
-                    }
-                }
-
-                rawLines.Add(new LineItemDto
-                {
-                    account_number = bankAcctNum,
-                    account_name = !string.IsNullOrEmpty(bankLeafName) ? bankLeafName : "Cash in Bank",
-                    memo = br.memo,
-                    debit = 0.0,
-                    credit = br.total_amount
-                });
-
-                br.line_items = ConsolidateLines(rawLines);
-                return br;
             }
 
-            // 2. Bill Payment Check (Pay Bills)
-            XmlNodeList bpList = doc.SelectNodes("//BillPaymentCheckRet");
-            if (bpList != null && bpList.Count > 0)
+            XmlNodeList bpList = indexDoc.SelectNodes("//BillPaymentCheckRet");
+            if (bpList != null)
             {
-                XmlNode bp = null;
-                foreach (XmlNode candidate in bpList)
+                foreach (XmlNode c in bpList)
                 {
-                    if (string.Equals(GetNodeText(candidate, "RefNumber"), refNumber, StringComparison.OrdinalIgnoreCase))
+                    string tNum = GetNodeText(c, "TxnNumber");
+                    string tId = GetNodeText(c, "TxnID");
+                    if (!string.IsNullOrEmpty(tNum) && !string.IsNullOrEmpty(tId))
                     {
-                        bp = candidate;
-                        break;
+                        cache[tNum] = Tuple.Create("BP", tId);
+                        if (string.IsNullOrEmpty(matchedCheckTxnId) &&
+                            string.Equals(tNum, txnNumber, StringComparison.OrdinalIgnoreCase))
+                            matchedBpTxnId = tId;
                     }
                 }
-                if (bp == null) bp = bpList[0];
+            }
 
-                BridgeResponse br = new BridgeResponse { success = true };
-                string foundRef = GetNodeText(bp, "RefNumber");
-                br.ref_number = !string.IsNullOrEmpty(foundRef) ? foundRef : refNumber;
-                br.date = FormatQbDate(GetNodeText(bp, "TxnDate"));
-                br.payee_name = GetNodeText(bp, "PayeeEntityRef/FullName");
-                XmlNode addrNode = bp.SelectSingleNode("Address");
-                br.payee_address = ExtractAddress(addrNode);
-                br.payee_zip = GetNodeText(addrNode, "PostalCode");
-                string payeeListId = GetNodeText(bp, "PayeeEntityRef/ListID");
-                QueryVendorDetails(session, payeeListId, br.payee_name, br);
-
-                string bankFullName = GetNodeText(bp, "BankAccountRef/FullName");
-                string bankListId = GetNodeText(bp, "BankAccountRef/ListID");
-                string bankLeafName = GetLeafAccountName(bankFullName);
-                string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
-
-                string headerApFullName = GetNodeText(bp, "APAccountRef/FullName");
-                if (string.IsNullOrEmpty(headerApFullName)) headerApFullName = "Accounts Payable";
-                string headerApListId = GetNodeText(bp, "APAccountRef/ListID");
-                string headerApLeafName = GetLeafAccountName(headerApFullName);
-                string headerApAcctNum = LookupAccountNumber(headerApListId, headerApFullName, acctNumById, acctNumByName);
-
-                br.bank_account = bankLeafName;
-                br.ap_account = headerApLeafName;
-                br.memo = GetNodeText(bp, "Memo");
-                br.total_amount = GetNodeDouble(bp, "Amount");
-
-                List<LineItemDto> rawLines = new List<LineItemDto>();
-                List<string> billMemos = new List<string>();
-
-                XmlNodeList appliedList = bp.SelectNodes("AppliedToTxnRet");
-                if (appliedList != null && appliedList.Count > 0)
+            XmlNodeList jeList = indexDoc.SelectNodes("//JournalEntryRet");
+            if (jeList != null)
+            {
+                foreach (XmlNode c in jeList)
                 {
-                    Dictionary<string, Tuple<string, string, string>> billInfoByTxnId = QueryAppliedBills(session, appliedList, acctNumById, acctNumByName);
-
-                    foreach (XmlNode app in appliedList)
+                    string tNum = GetNodeText(c, "TxnNumber");
+                    string tId = GetNodeText(c, "TxnID");
+                    if (!string.IsNullOrEmpty(tNum) && !string.IsNullOrEmpty(tId))
                     {
-                        string txnId = GetNodeText(app, "TxnID");
-                        string billRef = GetNodeText(app, "RefNumber");
+                        cache[tNum] = Tuple.Create("JE", tId);
+                        if (string.IsNullOrEmpty(matchedCheckTxnId) &&
+                            string.IsNullOrEmpty(matchedBpTxnId) &&
+                            string.Equals(tNum, txnNumber, StringComparison.OrdinalIgnoreCase))
+                            matchedJeTxnId = tId;
+                    }
+                }
+            }
+        }
 
-                        if (!string.IsNullOrEmpty(txnId) && billInfoByTxnId.ContainsKey(txnId))
+        static void ScanHeadersForTxnNumber(
+            QbXmlSession session,
+            string txnNumber,
+            Dictionary<string, Tuple<string, string>> cache,
+            ref string matchedCheckTxnId,
+            ref string matchedBpTxnId,
+            ref string matchedJeTxnId)
+        {
+            // Window A: Fast path for recent transactions (last 180 days)
+            string d180 = DateTime.Now.AddDays(-180).ToString("yyyy-MM-dd");
+            XmlDocument docRecent = session.ProcessRequest(BuildHeaderWindowQuery(d180, ""));
+            IndexResponseAndMatch(docRecent, txnNumber, cache, ref matchedCheckTxnId, ref matchedBpTxnId, ref matchedJeTxnId);
+
+            // Window B: Guaranteed full fallback if not found in recent window
+            if (string.IsNullOrEmpty(matchedCheckTxnId) &&
+                string.IsNullOrEmpty(matchedBpTxnId) &&
+                string.IsNullOrEmpty(matchedJeTxnId))
+            {
+                XmlDocument docAll = session.ProcessRequest(BuildHeaderWindowQuery("", ""));
+                IndexResponseAndMatch(docAll, txnNumber, cache, ref matchedCheckTxnId, ref matchedBpTxnId, ref matchedJeTxnId);
+            }
+
+            SaveTxnCache(cache);
+        }
+
+        static BridgeResponse QueryCheckOrBillPayment(
+            QbXmlSession session,
+            string txnNumber,
+            Dictionary<string, string> acctNumById,
+            Dictionary<string, string> acctNumByName)
+        {
+            string matchedCheckTxnId = "";
+            string matchedBpTxnId = "";
+            string matchedJeTxnId = "";
+            bool fromCache = false;
+
+            // Step 0: Check local TxnNumber -> TxnID cache first
+            Dictionary<string, Tuple<string, string>> cache = LoadTxnCache();
+            if (cache.ContainsKey(txnNumber))
+            {
+                var cached = cache[txnNumber];
+                fromCache = true;
+                if (cached.Item1 == "CHK") matchedCheckTxnId = cached.Item2;
+                else if (cached.Item1 == "BP") matchedBpTxnId = cached.Item2;
+                else if (cached.Item1 == "JE") matchedJeTxnId = cached.Item2;
+            }
+
+            // Step 1: If not in cache, scan headers (recent 180 days first, then full fallback)
+            if (string.IsNullOrEmpty(matchedCheckTxnId) &&
+                string.IsNullOrEmpty(matchedBpTxnId) &&
+                string.IsNullOrEmpty(matchedJeTxnId))
+            {
+                ScanHeadersForTxnNumber(session, txnNumber, cache, ref matchedCheckTxnId, ref matchedBpTxnId, ref matchedJeTxnId);
+            }
+
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                // 1. Check Response: Regular Check (Write Checks)
+                if (!string.IsNullOrEmpty(matchedCheckTxnId))
+                {
+                    XmlDocument doc = session.ProcessRequest(
+                        "<CheckQueryRq>" +
+                        "<TxnID>" + EscapeXml(matchedCheckTxnId) + "</TxnID>" +
+                        "<IncludeLineItems>true</IncludeLineItems>" +
+                        "</CheckQueryRq>"
+                    );
+                    XmlNode chk = doc.SelectSingleNode("//CheckRet");
+                    if (chk != null && string.Equals(GetNodeText(chk, "TxnNumber"), txnNumber, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LoadChartOfAccounts(session, acctNumById, acctNumByName);
+
+                        BridgeResponse br = new BridgeResponse { success = true };
+                        br.ref_number = GetNodeText(chk, "RefNumber");
+                        br.date = FormatQbDate(GetNodeText(chk, "TxnDate"));
+                        br.payee_name = GetNodeText(chk, "PayeeEntityRef/FullName");
+                        XmlNode addrNode = chk.SelectSingleNode("Address");
+                        br.payee_address = ExtractAddress(addrNode);
+                        br.payee_zip = GetNodeText(addrNode, "PostalCode");
+                        string payeeListId = GetNodeText(chk, "PayeeEntityRef/ListID");
+                        QueryVendorDetails(session, payeeListId, br.payee_name, br);
+
+                        string bankFullName = GetNodeText(chk, "AccountRef/FullName");
+                        string bankListId = GetNodeText(chk, "AccountRef/ListID");
+                        string bankLeafName = GetLeafAccountName(bankFullName);
+                        string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
+
+                        br.bank_account = bankLeafName;
+                        br.memo = GetNodeText(chk, "Memo");
+                        br.total_amount = GetNodeDouble(chk, "Amount");
+
+                        List<LineItemDto> rawLines = new List<LineItemDto>();
+
+                        XmlNodeList expLines = chk.SelectNodes("ExpenseLineRet");
+                        if (expLines != null)
                         {
-                            var info = billInfoByTxnId[txnId];
-                            if (!string.IsNullOrEmpty(info.Item1)) headerApLeafName = info.Item1;
-                            if (!string.IsNullOrEmpty(info.Item2)) headerApAcctNum = info.Item2;
-                            if (!string.IsNullOrEmpty(info.Item3)) billMemos.Add(info.Item3);
+                            foreach (XmlNode exp in expLines)
+                            {
+                                string accName = GetNodeText(exp, "AccountRef/FullName");
+                                string accId = GetNodeText(exp, "AccountRef/ListID");
+                                string accNum = LookupAccountNumber(accId, accName, acctNumById, acctNumByName);
+                                double amt = GetNodeDouble(exp, "Amount");
+
+                                rawLines.Add(new LineItemDto
+                                {
+                                    account_number = accNum,
+                                    account_name = GetLeafAccountName(accName),
+                                    class_name = GetNodeText(exp, "ClassRef/FullName"),
+                                    customer_job = GetNodeText(exp, "CustomerRef/FullName"),
+                                    memo = GetNodeText(exp, "Memo"),
+                                    debit = amt >= 0 ? amt : 0.0,
+                                    credit = amt < 0 ? Math.Abs(amt) : 0.0
+                                });
+                            }
                         }
-                        else if (!string.IsNullOrEmpty(billRef) && string.IsNullOrEmpty(br.memo))
+
+                        XmlNodeList itemLines = chk.SelectNodes("ItemLineRet");
+                        if (itemLines != null && itemLines.Count > 0)
                         {
-                            billMemos.Add("Bill #" + billRef);
+                            Dictionary<string, ItemAccountInfo> itemAcctMap = new Dictionary<string, ItemAccountInfo>(StringComparer.OrdinalIgnoreCase);
+                            LoadSpecificItemsAccountMap(session, itemLines, acctNumById, acctNumByName, itemAcctMap);
+
+                            foreach (XmlNode il in itemLines)
+                            {
+                                string itemId = GetNodeText(il, "ItemRef/ListID");
+                                string itemName = GetNodeText(il, "ItemRef/FullName");
+                                double amt = GetNodeDouble(il, "Amount");
+
+                                string resolvedAcctName = GetLeafAccountName(itemName);
+                                string resolvedAcctNum = "";
+                                if (!string.IsNullOrEmpty(itemId) && itemAcctMap.ContainsKey(itemId))
+                                {
+                                    resolvedAcctName = itemAcctMap[itemId].AccountLeafName;
+                                    resolvedAcctNum = itemAcctMap[itemId].AccountNumber;
+                                }
+                                else if (!string.IsNullOrEmpty(itemName) && itemAcctMap.ContainsKey(itemName))
+                                {
+                                    resolvedAcctName = itemAcctMap[itemName].AccountLeafName;
+                                    resolvedAcctNum = itemAcctMap[itemName].AccountNumber;
+                                }
+
+                                rawLines.Add(new LineItemDto
+                                {
+                                    account_number = resolvedAcctNum,
+                                    account_name = resolvedAcctName,
+                                    class_name = GetNodeText(il, "ClassRef/FullName"),
+                                    customer_job = GetNodeText(il, "CustomerRef/FullName"),
+                                    memo = GetNodeText(il, "Desc"),
+                                    debit = amt >= 0 ? amt : 0.0,
+                                    credit = amt < 0 ? Math.Abs(amt) : 0.0,
+                                    quantity = GetNodeDouble(il, "Quantity"),
+                                    unit_cost = GetNodeDouble(il, "Cost"),
+                                    item_name = itemName
+                                });
+                            }
                         }
+
+                        rawLines.Add(new LineItemDto
+                        {
+                            account_number = bankAcctNum,
+                            account_name = !string.IsNullOrEmpty(bankLeafName) ? bankLeafName : "Cash in Bank",
+                            memo = br.memo,
+                            debit = 0.0,
+                            credit = br.total_amount
+                        });
+
+                        br.line_items = ConsolidateLines(rawLines);
+                        return br;
                     }
                 }
 
-                if (string.IsNullOrEmpty(br.memo) && billMemos.Count > 0)
+                // 2. Bill Payment Check (Pay Bills)
+                if (!string.IsNullOrEmpty(matchedBpTxnId))
                 {
-                    br.memo = string.Join("; ", billMemos.ToArray());
+                    XmlDocument doc = session.ProcessRequest(
+                        "<BillPaymentCheckQueryRq>" +
+                        "<TxnID>" + EscapeXml(matchedBpTxnId) + "</TxnID>" +
+                        "<IncludeLineItems>true</IncludeLineItems>" +
+                        "</BillPaymentCheckQueryRq>"
+                    );
+                    XmlNode bp = doc.SelectSingleNode("//BillPaymentCheckRet");
+                    if (bp != null && string.Equals(GetNodeText(bp, "TxnNumber"), txnNumber, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LoadChartOfAccounts(session, acctNumById, acctNumByName);
+
+                        BridgeResponse br = new BridgeResponse { success = true };
+                        br.ref_number = GetNodeText(bp, "RefNumber");
+                        br.date = FormatQbDate(GetNodeText(bp, "TxnDate"));
+                        br.payee_name = GetNodeText(bp, "PayeeEntityRef/FullName");
+                        XmlNode addrNode = bp.SelectSingleNode("Address");
+                        br.payee_address = ExtractAddress(addrNode);
+                        br.payee_zip = GetNodeText(addrNode, "PostalCode");
+                        string payeeListId = GetNodeText(bp, "PayeeEntityRef/ListID");
+                        QueryVendorDetails(session, payeeListId, br.payee_name, br);
+
+                        string bankFullName = GetNodeText(bp, "BankAccountRef/FullName");
+                        string bankListId = GetNodeText(bp, "BankAccountRef/ListID");
+                        string bankLeafName = GetLeafAccountName(bankFullName);
+                        string bankAcctNum = LookupAccountNumber(bankListId, bankFullName, acctNumById, acctNumByName);
+
+                        string headerApFullName = GetNodeText(bp, "APAccountRef/FullName");
+                        if (string.IsNullOrEmpty(headerApFullName)) headerApFullName = "Accounts Payable";
+                        string headerApListId = GetNodeText(bp, "APAccountRef/ListID");
+                        string headerApLeafName = GetLeafAccountName(headerApFullName);
+                        string headerApAcctNum = LookupAccountNumber(headerApListId, headerApFullName, acctNumById, acctNumByName);
+
+                        br.bank_account = bankLeafName;
+                        br.ap_account = headerApLeafName;
+                        br.memo = GetNodeText(bp, "Memo");
+                        br.total_amount = GetNodeDouble(bp, "Amount");
+
+                        List<LineItemDto> rawLines = new List<LineItemDto>();
+                        List<string> billMemos = new List<string>();
+
+                        XmlNodeList appliedList = bp.SelectNodes("AppliedToTxnRet");
+                        if (appliedList != null && appliedList.Count > 0)
+                        {
+                            Dictionary<string, Tuple<string, string, string>> billInfoByTxnId = QueryAppliedBills(session, appliedList, acctNumById, acctNumByName);
+
+                            foreach (XmlNode app in appliedList)
+                            {
+                                string txnId = GetNodeText(app, "TxnID");
+                                string billRef = GetNodeText(app, "RefNumber");
+
+                                if (!string.IsNullOrEmpty(txnId) && billInfoByTxnId.ContainsKey(txnId))
+                                {
+                                    var info = billInfoByTxnId[txnId];
+                                    if (!string.IsNullOrEmpty(info.Item1)) headerApLeafName = info.Item1;
+                                    if (!string.IsNullOrEmpty(info.Item2)) headerApAcctNum = info.Item2;
+                                    if (!string.IsNullOrEmpty(info.Item3)) billMemos.Add(info.Item3);
+                                }
+                                else if (!string.IsNullOrEmpty(billRef) && string.IsNullOrEmpty(br.memo))
+                                {
+                                    billMemos.Add("Bill #" + billRef);
+                                }
+                            }
+                        }
+
+                        if (string.IsNullOrEmpty(br.memo) && billMemos.Count > 0)
+                        {
+                            br.memo = string.Join("; ", billMemos.ToArray());
+                        }
+
+                        rawLines.Add(new LineItemDto
+                        {
+                            account_number = headerApAcctNum,
+                            account_name = !string.IsNullOrEmpty(headerApLeafName) ? headerApLeafName : "Accounts Payable",
+                            memo = br.memo,
+                            debit = br.total_amount,
+                            credit = 0.0
+                        });
+
+                        rawLines.Add(new LineItemDto
+                        {
+                            account_number = bankAcctNum,
+                            account_name = !string.IsNullOrEmpty(bankLeafName) ? bankLeafName : "Cash in Bank",
+                            memo = br.memo,
+                            debit = 0.0,
+                            credit = br.total_amount
+                        });
+
+                        br.line_items = ConsolidateLines(rawLines);
+                        return br;
+                    }
                 }
 
-                rawLines.Add(new LineItemDto
+                // 3. General Journal Entry (Make General Journal Entries)
+                if (!string.IsNullOrEmpty(matchedJeTxnId))
                 {
-                    account_number = headerApAcctNum,
-                    account_name = !string.IsNullOrEmpty(headerApLeafName) ? headerApLeafName : "Accounts Payable",
-                    memo = br.memo,
-                    debit = br.total_amount,
-                    credit = 0.0
-                });
+                    XmlDocument doc = session.ProcessRequest(
+                        "<JournalEntryQueryRq>" +
+                        "<TxnID>" + EscapeXml(matchedJeTxnId) + "</TxnID>" +
+                        "<IncludeLineItems>true</IncludeLineItems>" +
+                        "</JournalEntryQueryRq>"
+                    );
+                    XmlNode je = doc.SelectSingleNode("//JournalEntryRet");
+                    if (je != null && string.Equals(GetNodeText(je, "TxnNumber"), txnNumber, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LoadChartOfAccounts(session, acctNumById, acctNumByName);
 
-                rawLines.Add(new LineItemDto
-                {
-                    account_number = bankAcctNum,
-                    account_name = !string.IsNullOrEmpty(bankLeafName) ? bankLeafName : "Cash in Bank",
-                    memo = br.memo,
-                    debit = 0.0,
-                    credit = br.total_amount
-                });
+                        BridgeResponse br = new BridgeResponse { success = true };
+                        br.ref_number = GetNodeText(je, "RefNumber");
+                        br.date = FormatQbDate(GetNodeText(je, "TxnDate"));
+                        br.memo = GetNodeText(je, "Memo");
 
-                br.line_items = ConsolidateLines(rawLines);
-                return br;
+                        List<LineItemDto> rawLines = new List<LineItemDto>();
+                        string firstEntityId = "";
+                        string firstEntityName = "";
+                        double totalDebit = 0.0;
+
+                        foreach (XmlNode child in je.ChildNodes)
+                        {
+                            bool isDebit = string.Equals(child.Name, "JournalDebitLine", StringComparison.OrdinalIgnoreCase);
+                            bool isCredit = string.Equals(child.Name, "JournalCreditLine", StringComparison.OrdinalIgnoreCase);
+                            if (!isDebit && !isCredit) continue;
+
+                            string accFull = GetNodeText(child, "AccountRef/FullName");
+                            string accId = GetNodeText(child, "AccountRef/ListID");
+                            string accLeaf = GetLeafAccountName(accFull);
+                            string accNum = LookupAccountNumber(accId, accFull, acctNumById, acctNumByName);
+                            double amt = GetNodeDouble(child, "Amount");
+                            string lineMemo = GetNodeText(child, "Memo");
+
+                            if (string.IsNullOrEmpty(br.memo) && !string.IsNullOrEmpty(lineMemo))
+                            {
+                                br.memo = lineMemo;
+                            }
+
+                            string entName = GetNodeText(child, "EntityRef/FullName");
+                            string entId = GetNodeText(child, "EntityRef/ListID");
+                            if (string.IsNullOrEmpty(firstEntityName) && !string.IsNullOrEmpty(entName))
+                            {
+                                firstEntityName = entName;
+                                firstEntityId = entId;
+                            }
+
+                            if (isDebit) totalDebit += amt;
+
+                            rawLines.Add(new LineItemDto
+                            {
+                                account_number = accNum,
+                                account_name = accLeaf,
+                                class_name = GetNodeText(child, "ClassRef/FullName"),
+                                memo = lineMemo,
+                                debit = isDebit ? amt : 0.0,
+                                credit = isCredit ? amt : 0.0
+                            });
+                        }
+
+                        br.payee_name = firstEntityName;
+                        if (!string.IsNullOrEmpty(firstEntityId) || !string.IsNullOrEmpty(firstEntityName))
+                        {
+                            QueryVendorDetails(session, firstEntityId, firstEntityName, br);
+                        }
+                        br.total_amount = totalDebit;
+                        br.line_items = ConsolidateLines(rawLines);
+                        return br;
+                    }
+                }
+
+                // If cache had a stale TxnID (e.g. company file switched), rescan once
+                if (!fromCache) break;
+                fromCache = false;
+                matchedCheckTxnId = "";
+                matchedBpTxnId = "";
+                matchedJeTxnId = "";
+                cache.Clear();
+                ScanHeadersForTxnNumber(session, txnNumber, cache, ref matchedCheckTxnId, ref matchedBpTxnId, ref matchedJeTxnId);
             }
 
             return new BridgeResponse
             {
                 success = false,
-                error = "Check RefNumber '" + refNumber + "' not found in QuickBooks."
+                error = "Journal Transaction Number (Trans #) '" + txnNumber + "' not found in QuickBooks."
             };
         }
 

@@ -433,17 +433,6 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
             color: "#000000",
           }}
         >
-          {/* Vertical Divider Line Extending Above the Outer Box (left of CHECK VOUCHER) */}
-          <div
-            style={{
-              position: "absolute",
-              left: "5.335in",
-              top: "0.46in",
-              height: "0.64in",
-              borderLeft: "1.5px solid #000000",
-            }}
-          />
-
           {/* CHECK VOUCHER Title (Top-Right above CV NUMBER box) */}
           <div
             style={{

@@ -343,8 +343,8 @@ export const CheckPrintLayout: React.FC<Props> = ({
         {/* Non-printing Philippine PCHC Cheque Guide Overlay on Screen */}
         <div className="no-print absolute inset-0 pointer-events-none select-none text-slate-400/70">
           <div className="absolute top-[6mm] left-[10mm] text-[8pt] font-semibold uppercase tracking-wider text-slate-400/60">
-            {voucher.bank_account || "BANK CHEQUE PREVIEW"} — Check #
-            {voucher.ref_number}
+            {voucher.bank_account || "BANK CHEQUE PREVIEW"}
+            {voucher.ref_number ? ` — Check #${voucher.ref_number}` : ""}
           </div>
           <div className="absolute top-[14mm] left-[118mm] text-[7.5pt] font-bold">
             DATE:

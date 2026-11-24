@@ -109,7 +109,7 @@ fn delete_voucher_history(db: State<'_, DbState>, id: i64) -> Result<(), String>
 }
 
 #[tauri::command]
-fn query_quickbooks_voucher(
+async fn query_quickbooks_voucher(
     db: State<'_, DbState>,
     form_type: String,
     client_code: String,
@@ -117,12 +117,12 @@ fn query_quickbooks_voucher(
     ref_number: String,
 ) -> Result<VoucherData, String> {
     let series_key = if company_name.trim().is_empty() {
-        &client_code
+        client_code.clone()
     } else {
-        &company_name
+        company_name.clone()
     };
     let series = db
-        .get_series(series_key, &form_type)
+        .get_series(&series_key, "CV")
         .map_err(|e| e.to_string())?;
     let sig = db
         .get_signatories(&client_code)
@@ -143,14 +143,18 @@ fn query_quickbooks_voucher(
         )
     };
 
-    quickbooks::query_voucher_from_qb(
-        &form_type,
-        &client_code,
-        &company_name,
-        &ref_number,
-        &formatted_series,
-        sig,
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        quickbooks::query_voucher_from_qb(
+            &form_type,
+            &client_code,
+            &company_name,
+            &ref_number,
+            &formatted_series,
+            sig,
+        )
+    })
+    .await
+    .map_err(|e| format!("Background task error: {}", e))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

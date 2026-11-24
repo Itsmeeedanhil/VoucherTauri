@@ -83,7 +83,7 @@ pub fn query_voucher_from_qb(
     signatories: SignatoriesConfig,
 ) -> Result<VoucherData, String> {
     if ref_number.trim().is_empty() {
-        return Err("Please enter a Reference Number to search.".to_string());
+        return Err("Please enter a Journal Transaction Number (Trans #) to search.".to_string());
     }
 
     let exe_path = find_qb_bridge_exe()
