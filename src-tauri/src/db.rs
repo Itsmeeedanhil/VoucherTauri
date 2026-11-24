@@ -116,6 +116,7 @@ impl DbState {
                     "Bradwell Sales and Marketing Corp.".to_string(),
                     "Mapleway International Distributions Corp.".to_string(),
                     "StoneBridge Materials Corp.".to_string(),
+                    "Eurohub Warehousing and Logistics Inc.".to_string(),
                 ],
                 enabled_forms: vec!["CV".to_string()],
                 logo_url: None,
@@ -171,14 +172,14 @@ impl DbState {
                     params![client.code],
                 )?;
             } else {
-                // Ensure the 3 default companies are present in existing DB record
+                // Ensure the 4 default companies are present in existing DB record
                 if let Ok(existing_json) = conn.query_row::<String, _, _>(
                     "SELECT json_data FROM clients WHERE code = ?1",
                     params![client.code],
                     |row| row.get(0),
                 ) {
                     if let Ok(mut existing_profile) = serde_json::from_str::<ClientProfile>(&existing_json) {
-                        if existing_profile.sub_companies.len() < 3 {
+                        if existing_profile.sub_companies.len() < client.sub_companies.len() {
                             existing_profile.sub_companies = client.sub_companies.clone();
                             if let Ok(updated_json) = serde_json::to_string(&existing_profile) {
                                 let _ = conn.execute(
@@ -188,6 +189,13 @@ impl DbState {
                             }
                         }
                     }
+                }
+                for company in &client.sub_companies {
+                    let _ = conn.execute(
+                        "INSERT OR IGNORE INTO series_config (client_code, form_type, current_number, prefix, digit_count)
+                         VALUES (?1, 'CV', 1, '', 5)",
+                        params![company],
+                    );
                 }
             }
         }

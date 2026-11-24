@@ -90,6 +90,12 @@ export const COMPANY_HEADER_DETAILS: Record<
     addressLine2: "Clark Freeport Zone, 2023 Clark, Pampanga, Philippines",
     logoUrl: "/logo-stonebridge.png",
   },
+  "Eurohub Warehousing and Logistics Inc.": {
+    title: "EUROHUB WAREHOUSING AND LOGISTICS INC.",
+    tinLine: "VAT Reg. TIN: 010-575-737-00000",
+    addressLine1: "P3 B7 L2 Sterling Technopark Bancal",
+    addressLine2: "4116 City of Carmona Cavite Philippines",
+  },
 };
 
 /**
@@ -838,7 +844,17 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
 
           <div
             className={fieldCalibrationClass("company_header")}
-            style={getFieldStyle("company_header")}
+            style={{
+              ...getFieldStyle("company_header"),
+              ...(!companyDetails.logoUrl
+                ? {
+                    left: `calc(0.35in + ${
+                      globalXmm + (getFieldOffset("company_header").x_mm || 0)
+                    }mm)`,
+                    width: "4.9in",
+                  }
+                : {}),
+            }}
             onMouseDown={(e) => handleMouseDownField(e, "company_header")}
             title="Drag to adjust Company Header position"
           >

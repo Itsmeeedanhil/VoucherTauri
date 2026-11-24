@@ -76,6 +76,7 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
     "Bradwell Sales and Marketing Corp.",
     "Mapleway International Distributions Corp.",
     "StoneBridge Materials Corp.",
+    "Eurohub Warehousing and Logistics Inc.",
   ],
   enabled_forms: ["CV", "Check", "BIR2307"],
   logo_url: null,
