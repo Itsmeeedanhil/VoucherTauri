@@ -95,6 +95,7 @@ export const COMPANY_HEADER_DETAILS: Record<
     tinLine: "VAT Reg. TIN: 010-575-737-00000",
     addressLine1: "P3 B7 L2 Sterling Technopark Bancal",
     addressLine2: "4116 City of Carmona Cavite Philippines",
+    logoUrl: "/logo-eurohub.png",
   },
 };
 
