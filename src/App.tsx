@@ -17,6 +17,15 @@ import { Sidebar } from "./components/Sidebar";
 import { VoucherCanvas } from "./components/VoucherCanvas";
 import { SignatoriesModal } from "./components/SignatoriesModal";
 import { VoucherHistoryModal } from "./components/VoucherHistoryModal";
+import { ProgrammerModal } from "./components/ProgrammerModal";
+
+export const ALL_COMPANIES: string[] = [
+  "Bradwell Sales and Marketing Corp.",
+  "Mapleway International Distributions Corp.",
+  "StoneBridge Materials Corp.",
+  "Eurohub Warehousing and Logistics Inc.",
+  "RAC Experts Information Technology Inc.",
+];
 
 const createEmpty2307Rows = (): Form2307Row[] =>
   Array.from({ length: 10 }, () => ({
@@ -72,12 +81,7 @@ const DEFAULT_CLIENT_PROFILE: ClientProfile = {
   contact_number: "(02) 8635-0000",
   website: "",
   tin: "010-261-476-00000",
-  sub_companies: [
-    "Bradwell Sales and Marketing Corp.",
-    "Mapleway International Distributions Corp.",
-    "StoneBridge Materials Corp.",
-    "Eurohub Warehousing and Logistics Inc.",
-  ],
+  sub_companies: ALL_COMPANIES,
   enabled_forms: ["CV", "Check", "BIR2307"],
   logo_url: null,
   layout_config: {
@@ -135,6 +139,20 @@ export function App() {
   const [payeeOverride, setPayeeOverride] = useState<string>("");
   const [isSignatoriesOpen, setIsSignatoriesOpen] = useState<boolean>(false);
 
+  // Programmer Access State (Company Visibility & Password)
+  const [isProgrammerOpen, setIsProgrammerOpen] = useState<boolean>(false);
+  const [hiddenCompanies, setHiddenCompanies] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem("voucherpro_hidden_companies");
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [programmerPassword, setProgrammerPassword] = useState<string>(() => {
+    return localStorage.getItem("voucherpro_programmer_password") || "admin123";
+  });
+
   // Print History State
   const [voucherHistory, setVoucherHistory] = useState<VoucherHistoryEntry[]>(
     []
@@ -165,18 +183,107 @@ export function App() {
       try {
         const list = await invoke<ClientProfile[]>("get_clients");
         if (list && list.length > 0) {
-          setClients(list);
-          const first = list[0];
+          const mergedList = list.map((c) => ({
+            ...c,
+            sub_companies: Array.from(
+              new Set([...(c.sub_companies || []), ...ALL_COMPANIES])
+            ),
+          }));
+          setClients(mergedList);
+          const first = mergedList[0];
           setSelectedClient(first);
-          setSelectedCompany(first.sub_companies[0] || first.name);
         }
       } catch (err) {
         console.warn("Running outside Tauri or DB init warning:", err);
+      }
+      try {
+        const [savedHiddenJson, savedPwd] = await Promise.all([
+          invoke<string>("get_app_setting", {
+            key: "hidden_companies",
+            defaultVal: "[]",
+          }),
+          invoke<string>("get_app_setting", {
+            key: "programmer_password",
+            defaultVal: "admin123",
+          }),
+        ]);
+        const parsedHidden: string[] = JSON.parse(savedHiddenJson || "[]");
+        if (Array.isArray(parsedHidden)) {
+          setHiddenCompanies(parsedHidden);
+          localStorage.setItem(
+            "voucherpro_hidden_companies",
+            JSON.stringify(parsedHidden)
+          );
+        }
+        if (savedPwd) {
+          setProgrammerPassword(savedPwd);
+          localStorage.setItem("voucherpro_programmer_password", savedPwd);
+        }
+      } catch {
+        // Fallback to localStorage values initialized in state
       }
       loadHistory();
     }
     init();
   }, [loadHistory]);
+
+  // Global keyboard shortcut (Ctrl+Shift+P) for Programmer Access
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setIsProgrammerOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const allClientCompanies = Array.from(
+    new Set([...(selectedClient.sub_companies || []), ...ALL_COMPANIES])
+  );
+  const visibleCompanies = (() => {
+    const filtered = allClientCompanies.filter(
+      (c) => !hiddenCompanies.includes(c)
+    );
+    return filtered.length > 0 ? filtered : [allClientCompanies[0]];
+  })();
+
+  useEffect(() => {
+    if (!visibleCompanies.includes(selectedCompany)) {
+      const nextComp = visibleCompanies[0];
+      if (nextComp) {
+        setSelectedCompany(nextComp);
+      }
+    }
+  }, [visibleCompanies, selectedCompany]);
+
+  const handleSaveHiddenCompanies = async (nextHidden: string[]) => {
+    setHiddenCompanies(nextHidden);
+    const json = JSON.stringify(nextHidden);
+    localStorage.setItem("voucherpro_hidden_companies", json);
+    try {
+      await invoke("set_app_setting", {
+        key: "hidden_companies",
+        val: json,
+      });
+    } catch (err) {
+      console.warn("Failed to persist hidden_companies to DB:", err);
+    }
+  };
+
+  const handleSaveProgrammerPassword = async (newPwd: string) => {
+    setProgrammerPassword(newPwd);
+    localStorage.setItem("voucherpro_programmer_password", newPwd);
+    try {
+      await invoke("set_app_setting", {
+        key: "programmer_password",
+        val: newPwd,
+      });
+    } catch (err) {
+      console.warn("Failed to persist programmer_password to DB:", err);
+    }
+  };
 
   // Load per-company Series & Signatories when company or client changes
   useEffect(() => {
@@ -240,8 +347,13 @@ export function App() {
   };
 
   const fetchVoucher = useCallback(async () => {
+    const isRacExperts = selectedCompany.toLowerCase().includes("rac experts");
     if (!refNumber.trim()) {
-      setErrorMsg("Please enter a Journal Transaction Number (Trans #).");
+      setErrorMsg(
+        isRacExperts
+          ? "Please enter a Reference Number."
+          : "Please enter a Journal Transaction Number (Trans #)."
+      );
       return;
     }
     setIsLoading(true);
@@ -586,7 +698,10 @@ export function App() {
           setSelectedField(null);
         }}
         clients={clients}
-        selectedClient={selectedClient}
+        selectedClient={{
+          ...selectedClient,
+          sub_companies: visibleCompanies,
+        }}
         onSelectClient={handleSelectClient}
         selectedCompany={selectedCompany}
         onSelectCompany={handleSelectCompany}
@@ -601,11 +716,13 @@ export function App() {
         onOpenSignatoriesModal={() => setIsSignatoriesOpen(true)}
         historyCount={voucherHistory.length}
         onOpenHistoryModal={() => setIsHistoryOpen(true)}
+        onOpenProgrammerModal={() => setIsProgrammerOpen(true)}
         onPrint={handlePrint}
       />
 
       <VoucherCanvas
         activeForm={activeForm}
+        selectedCompany={selectedCompany}
         voucherData={voucherData}
         bir2307Data={bir2307Data}
         onChangeBir2307={handleChangeBir2307}
@@ -642,11 +759,21 @@ export function App() {
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
         entries={voucherHistory}
-        companies={selectedClient.sub_companies}
+        companies={visibleCompanies}
         selectedCompany={selectedCompany}
         onLoadEntry={handleLoadHistoryEntry}
         onReprintEntry={handleReprintHistoryEntry}
         onDeleteEntry={handleDeleteHistoryEntry}
+      />
+
+      <ProgrammerModal
+        isOpen={isProgrammerOpen}
+        onClose={() => setIsProgrammerOpen(false)}
+        allCompanies={allClientCompanies}
+        hiddenCompanies={hiddenCompanies}
+        programmerPassword={programmerPassword}
+        onSaveVisibility={handleSaveHiddenCompanies}
+        onSavePassword={handleSaveProgrammerPassword}
       />
     </div>
   );

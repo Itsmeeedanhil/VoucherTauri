@@ -64,6 +64,8 @@ export const COMPANY_HEADER_DETAILS: Record<
     addressLine1: string;
     addressLine2?: string;
     logoUrl?: string;
+    logoWidthIn?: number;
+    headerXIn?: number;
   }
 > = {
   "Bradwell Sales and Marketing Corp.": {
@@ -96,6 +98,15 @@ export const COMPANY_HEADER_DETAILS: Record<
     addressLine1: "P3 B7 L2 Sterling Technopark Bancal",
     addressLine2: "4116 City of Carmona Cavite Philippines",
     logoUrl: "/logo-eurohub.png",
+  },
+  "RAC Experts Information Technology Inc.": {
+    title: "RAC EXPERTS INFORMATION TECHNOLOGY INC.",
+    tinLine: "",
+    addressLine1: "Unit 601, Artex Building, 435 Juan Luna St,",
+    addressLine2: "Binondo, Manila Philippines",
+    logoUrl: "/logo-rac-experts.png",
+    logoWidthIn: 1.38,
+    headerXIn: 1.8,
   },
 };
 
@@ -821,6 +832,16 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
               className={fieldCalibrationClass("company_logo")}
               style={{
                 ...getFieldStyle("company_logo"),
+                ...(companyDetails.logoWidthIn
+                  ? {
+                      width: `${
+                        companyDetails.logoWidthIn *
+                        ((getFieldOffset("company_logo").font_size_pt ??
+                          BRADWELL_FIELD_ANCHORS.company_logo.defaultFontPt) /
+                          BRADWELL_FIELD_ANCHORS.company_logo.defaultFontPt)
+                      }in`,
+                    }
+                  : {}),
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -853,6 +874,13 @@ export const BradwellCheckVoucherLayout: React.FC<Props> = ({
                       globalXmm + (getFieldOffset("company_header").x_mm || 0)
                     }mm)`,
                     width: "4.9in",
+                  }
+                : companyDetails.headerXIn
+                ? {
+                    left: `calc(${companyDetails.headerXIn}in + ${
+                      globalXmm + (getFieldOffset("company_header").x_mm || 0)
+                    }mm)`,
+                    width: `${5.36 - companyDetails.headerXIn}in`,
                   }
                 : {}),
             }}

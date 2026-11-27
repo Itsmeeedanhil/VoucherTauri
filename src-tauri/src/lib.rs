@@ -109,6 +109,20 @@ fn delete_voucher_history(db: State<'_, DbState>, id: i64) -> Result<(), String>
 }
 
 #[tauri::command]
+fn get_app_setting(
+    db: State<'_, DbState>,
+    key: String,
+    default_val: String,
+) -> Result<String, String> {
+    db.get_setting(&key, &default_val).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_app_setting(db: State<'_, DbState>, key: String, val: String) -> Result<(), String> {
+    db.set_setting(&key, &val).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn query_quickbooks_voucher(
     db: State<'_, DbState>,
     form_type: String,
@@ -185,6 +199,8 @@ pub fn run() {
             save_voucher_history,
             get_voucher_history,
             delete_voucher_history,
+            get_app_setting,
+            set_app_setting,
             query_quickbooks_voucher
         ])
         .run(tauri::generate_context!())

@@ -82,15 +82,25 @@ pub fn query_voucher_from_qb(
     series_number: &str,
     signatories: SignatoriesConfig,
 ) -> Result<VoucherData, String> {
+    let use_ref_number = company_name
+        .to_ascii_lowercase()
+        .contains("rac experts");
+
     if ref_number.trim().is_empty() {
-        return Err("Please enter a Journal Transaction Number (Trans #) to search.".to_string());
+        return Err(if use_ref_number {
+            "Please enter a Reference Number to search.".to_string()
+        } else {
+            "Please enter a Journal Transaction Number (Trans #) to search.".to_string()
+        });
     }
 
     let exe_path = find_qb_bridge_exe()
         .ok_or_else(|| "QBBridge.exe not found in src-tauri/bin/.".to_string())?;
 
     let mut cmd = Command::new(&exe_path);
-    cmd.arg(form_type).arg(ref_number.trim());
+    cmd.arg(form_type)
+        .arg(ref_number.trim())
+        .arg(if use_ref_number { "REF" } else { "TXN" });
 
     if let Some(bin_dir) = exe_path.parent() {
         cmd.current_dir(bin_dir);

@@ -117,6 +117,7 @@ impl DbState {
                     "Mapleway International Distributions Corp.".to_string(),
                     "StoneBridge Materials Corp.".to_string(),
                     "Eurohub Warehousing and Logistics Inc.".to_string(),
+                    "RAC Experts Information Technology Inc.".to_string(),
                 ],
                 enabled_forms: vec!["CV".to_string()],
                 logo_url: None,

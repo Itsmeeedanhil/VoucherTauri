@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Search,
   Printer,
@@ -33,6 +33,7 @@ interface SidebarProps {
   onOpenSignatoriesModal: () => void;
   historyCount: number;
   onOpenHistoryModal: () => void;
+  onOpenProgrammerModal: () => void;
   onPrint: () => void;
 }
 
@@ -55,9 +56,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSignatoriesModal,
   historyCount,
   onOpenHistoryModal,
+  onOpenProgrammerModal,
   onPrint,
 }) => {
   const [seriesInput, setSeriesInput] = useState<string>("");
+  const secretClickCountRef = useRef<number>(0);
+  const secretClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  const handleHeaderSecretClick = () => {
+    secretClickCountRef.current += 1;
+    if (secretClickTimerRef.current) {
+      clearTimeout(secretClickTimerRef.current);
+    }
+    if (secretClickCountRef.current >= 5) {
+      secretClickCountRef.current = 0;
+      onOpenProgrammerModal();
+      return;
+    }
+    secretClickTimerRef.current = setTimeout(() => {
+      secretClickCountRef.current = 0;
+    }, 2000);
+  };
 
   useEffect(() => {
     if (seriesConfig) {
@@ -73,8 +94,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside className="no-print w-72 bg-slate-900 border-r border-slate-800 flex flex-col h-screen text-slate-100 select-none shrink-0">
-      {/* Top Header */}
-      <div className="p-4 border-b border-slate-800 bg-slate-950/60">
+      {/* Top Header (Click 5x for Programmer Access) */}
+      <div
+        onClick={handleHeaderSecretClick}
+        className="p-4 border-b border-slate-800 bg-slate-950/60"
+      >
         <h1 className="font-bold text-base tracking-wide text-white">
           VoucherPRO
         </h1>
@@ -278,45 +302,58 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* 4. ENTER TRANSACTION NUMBER */}
-        <search>
-          <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
-            <label
-              htmlFor="sidebar-ref-number"
-              className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5"
-            >
-              <Search className="w-3.5 h-3.5 text-blue-400" />
-              {activeForm === "BIR2307"
-                ? "Pull Payee from Trans #"
-                : "Enter Transaction Number"}
-            </label>
-            <input
-              id="sidebar-ref-number"
-              name="ref_number"
-              type="search"
-              autoCorrect="off"
-              autoCapitalize="none"
-              spellCheck={false}
-              value={refNumber}
-              onChange={(e) => onRefNumberChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Enter Journal Trans #"
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
-            />
-            <button
-              type="button"
-              onClick={onSearchVoucher}
-              disabled={isLoading}
-              className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition cursor-pointer"
-            >
-              {isLoading
-                ? "Searching QuickBooks..."
-                : activeForm === "BIR2307"
-                ? "Search & Auto-Fill 2307"
-                : "Search"}
-            </button>
-          </div>
-        </search>
+        {/* 4. ENTER TRANSACTION / REFERENCE NUMBER */}
+        {(() => {
+          const isRacExperts = selectedCompany
+            .toLowerCase()
+            .includes("rac experts");
+          return (
+            <search>
+              <div className="bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+                <label
+                  htmlFor="sidebar-ref-number"
+                  className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5"
+                >
+                  <Search className="w-3.5 h-3.5 text-blue-400" />
+                  {activeForm === "BIR2307"
+                    ? isRacExperts
+                      ? "Pull Payee from Check Ref #"
+                      : "Pull Payee from Trans #"
+                    : isRacExperts
+                    ? "Enter Reference Number"
+                    : "Enter Transaction Number"}
+                </label>
+                <input
+                  id="sidebar-ref-number"
+                  name="ref_number"
+                  type="search"
+                  autoCorrect="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  value={refNumber}
+                  onChange={(e) => onRefNumberChange(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    isRacExperts ? "Enter Check Ref No." : "Enter Journal Trans #"
+                  }
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={onSearchVoucher}
+                  disabled={isLoading}
+                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition cursor-pointer"
+                >
+                  {isLoading
+                    ? "Searching QuickBooks..."
+                    : activeForm === "BIR2307"
+                    ? "Search & Auto-Fill 2307"
+                    : "Search"}
+                </button>
+              </div>
+            </search>
+          );
+        })()}
 
         {/* 5. SIGNATORY & PRINT HISTORY */}
         <div className="grid grid-cols-2 gap-2">

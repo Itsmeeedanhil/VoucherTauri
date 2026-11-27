@@ -34,6 +34,7 @@ import { Bir2307EditorPanel } from "./Bir2307EditorPanel";
 
 interface Props {
   activeForm: FormType;
+  selectedCompany: string;
   voucherData: VoucherData | null;
   bir2307Data: Form2307Data;
   onChangeBir2307: (next: Form2307Data) => void;
@@ -55,6 +56,7 @@ interface Props {
 
 export const VoucherCanvas: React.FC<Props> = ({
   activeForm,
+  selectedCompany,
   voucherData,
   bir2307Data,
   onChangeBir2307,
@@ -318,11 +320,16 @@ export const VoucherCanvas: React.FC<Props> = ({
                 <FileSpreadsheet className="w-6 h-6" />
               </div>
               <h2 className="text-sm font-bold text-white">
-                Enter Transaction Number to Search
+                {selectedCompany.toLowerCase().includes("rac experts")
+                  ? "Enter Reference Number to Search"
+                  : "Enter Transaction Number to Search"}
               </h2>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Make sure QuickBooks Desktop is open, enter a Journal
-                Transaction Number (Trans #) in the left panel, and click{" "}
+                Make sure QuickBooks Desktop is open, enter a{" "}
+                {selectedCompany.toLowerCase().includes("rac experts")
+                  ? "Check Reference Number"
+                  : "Journal Transaction Number (Trans #)"}{" "}
+                in the left panel, and click{" "}
                 <span className="text-blue-400 font-semibold">SEARCH</span>.
               </p>
             </div>
@@ -346,11 +353,16 @@ export const VoucherCanvas: React.FC<Props> = ({
                 <CreditCard className="w-6 h-6" />
               </div>
               <h2 className="text-sm font-bold text-white">
-                Enter Transaction Number for Cheque Printing
+                {selectedCompany.toLowerCase().includes("rac experts")
+                  ? "Enter Check Reference Number for Cheque Printing"
+                  : "Enter Transaction Number for Cheque Printing"}
               </h2>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Make sure QuickBooks Desktop is open, enter a Journal
-                Transaction Number (Trans #) in the left panel, and click{" "}
+                Make sure QuickBooks Desktop is open, enter a{" "}
+                {selectedCompany.toLowerCase().includes("rac experts")
+                  ? "Check Reference Number"
+                  : "Journal Transaction Number (Trans #)"}{" "}
+                in the left panel, and click{" "}
                 <span className="text-blue-400 font-semibold">SEARCH</span>.
               </p>
             </div>
